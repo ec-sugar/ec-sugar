@@ -1,0 +1,8 @@
+# 証明書の取り方 manual（上級者向け。答えに TLS_CERT と TLS_KEY を渡したときだけ）。Caddyfile から読み込む
+#
+# 手で用意した証明書（中間の証明書も含めた PEM。管理画面のホストとショップ〔1 店舗はそのホスト、複数の店は *.ショップのドメイン〕を含むもの）と秘密の鍵を読む。取りに行かない。
+# install.sh が確かめてから /srv/ec-sugar/secrets/caddy/tls/ に写す（鍵は Caddy の利用者だけが読める 0400）。取り直しは人が行い、install.sh を流し直す
+{$EC_SUGAR_ADMIN_HOST}, {$EC_SUGAR_SITE_SHOP} {
+	tls /run/secrets/ec-sugar/tls/cert.pem /run/secrets/ec-sugar/tls/key.pem
+	import edge
+}

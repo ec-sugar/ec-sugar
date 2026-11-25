@@ -1,0 +1,31 @@
+# EC-SUGAR を「すでにある Web サーバーの後ろに置く形」（FRONT=proxy。ADR 0031 の 5）
+#
+# docker-compose.prod.yml に重ねて使う（インストーラーと ec-sugar が、答えの FRONT=proxy のときだけ -f で足す）:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.proxy.yml --env-file … up -d
+#
+# 80・443 番と証明書は、前にある Web サーバー（Plesk の nginx・素の nginx・Apache など）が受け持つ。EC-SUGAR は:
+#   - 入口の Caddy を起こさない（数を 0 に）
+#   - 入口の nginx（web）は TCP では受けず、ホストの置き場（EC_SUGAR_FRONT_SOCKET_DIR、既定 /var/lib/ec-sugar/front）の
+#     Unix ソケット web.sock だけで受ける。置き場は root の持ち物・専用のグループ ec-sugar-front の 2770 で、前の Web サーバーの働き手のグループには
+#     ACL で通り抜けだけを許す（install.sh が作る）。
+#     同じサーバーの別の利用者（契約者の PHP・cron・SSH の利用者）はつなげないので、接続元の見出しを偽れない
+#   - nginx は、ソケットから来た要求（前の Web サーバー）が付けた X-Forwarded-For の最後の住所だけを本当の接続元とみなす（front-proxy.inc）
+# ufw と DOCKER-USER には触らない（前の Web サーバーの設定をそのまま使う）。ホストの防火壁（OUTPUT の鎖。root でない利用者からコンテナへ直に
+# 届かない）は、この形でも入れる（ec-sugar firewall）。ステージング（MODE=staging）はこの形では使えない（インストーラーが断る）
+
+services:
+  caddy:
+    scale: 0
+
+  web:
+    # 守りは置き場の権限（root:ec-sugar-front 2770 ＋ 前の Web サーバーのグループに ACL で通り抜けだけ）。nginx はソケットそのものを 0666 にするので、
+    # 置き場に入れない利用者はつなげない、という形で守る（使い捨ての Ubuntu で、グループの外の利用者は Permission denied を確かめた）。
+    # umask 0002 は置き場に作るほかのファイルのため。
+    # 前の起動で残ったソケットは消してから起こす（残っていると nginx が受けられない）
+    command: ["sh", "-c", "umask 0002 && rm -f /run/ec-sugar-front/web.sock && exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    # docker-compose.prod.yml の 82（php-fpm のソケット）に足す。EC_SUGAR_FRONT_SOCKET_GID: ソケットの置き場の専用のグループ ec-sugar-front
+    # （置き場は root の持ち物・このグループで書ける 2770。前の Web サーバーには ACL で通り抜けだけ。install.sh が作る）
+    group_add: ["${SUGAR_EC_FRONT_SOCKET_GID:-${EC_SUGAR_FRONT_SOCKET_GID:-}}"]
+    volumes:
+      - ./docker/nginx/front-proxy.inc:/etc/nginx/templates/front.inc.template:ro
+      - ${SUGAR_EC_FRONT_SOCKET_DIR:-${EC_SUGAR_FRONT_SOCKET_DIR:-/var/lib/ec-sugar/front}}:/run/ec-sugar-front

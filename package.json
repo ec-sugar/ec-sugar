@@ -1,0 +1,35 @@
+{
+    "$schema": "https://www.schemastore.org/package.json",
+    "private": true,
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "node": ">=22.12"
+    },
+    "scripts": {
+        "build": "vite build",
+        "watch": "vite build --watch",
+        "e2e": "playwright test",
+        "e2e:pr": "playwright test --grep-invert @nightly",
+        "e2e:flow": "playwright test -c playwright.flow.config.js",
+        "e2e:flow:cleanup": "node tests/e2e/flow/cleanup.js"
+    },
+    "dependencies": {
+        "@lucide/vue": "1.61.0",
+        "@vueuse/core": "15.0.0",
+        "motion": "14.14.0",
+        "motion-v": "2.8.0",
+        "openpgp": "6.3.2",
+        "vue": "3.5.44",
+        "vue-router": "5.5.1"
+    },
+    "devDependencies": {
+        "@fontsource/cormorant-garamond": "5.3.0",
+        "@fontsource/jost": "5.3.0",
+        "@playwright/test": "1.65.1",
+        "@tailwindcss/vite": "4.3.3",
+        "@vitejs/plugin-vue": "6.0.10",
+        "tailwindcss": "4.3.5",
+        "vite": "8.3.5"
+    }
+}

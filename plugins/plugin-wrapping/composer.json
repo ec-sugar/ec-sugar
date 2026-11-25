@@ -1,0 +1,69 @@
+{
+    "name": "ec-sugar/plugin-wrapping",
+    "description": "EC-SUGAR 公式の App: ラッピング・のし（注文に 1 つ選び、料金は注文の調整の行に。名入れは暗号化して持つ。ADR 0078）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginWrapping\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginWrapping\\WrappingServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "wrapping",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "noshi": {
+                    "type": "toggle",
+                    "label": "のしを受け付ける",
+                    "help": "オンにすると、「のしを付けられる」をオンにした商品のご注文で、お客さんがのしの表書きと掛け方（外のし・内のし）を選べます。",
+                    "default": false
+                },
+                "noshi_titles": {
+                    "type": "text",
+                    "label": "表書きの選択肢",
+                    "help": "「、」で区切って 20 個まで（1 つ 10 文字まで）。空なら 御祝、内祝、御礼、御中元、御歳暮、粗品、無地 です。",
+                    "pattern": "[^、,]{1,10}(、[^、,]{1,10}){0,19}",
+                    "max": 200
+                },
+                "noshi_fee": {
+                    "type": "text",
+                    "label": "のしの料金（円・税込み）",
+                    "help": "0 から 10000 の数で入れます。空なら無料です。",
+                    "pattern": "0|[1-9][0-9]{0,3}|10000",
+                    "max": 5
+                },
+                "noshi_name": {
+                    "type": "toggle",
+                    "label": "名入れの欄を出す",
+                    "help": "オンにすると、のしに入れるお名前（贈る人の名前など）の入力欄を出します。入力された文字は暗号化して保存し、納品書・配送の CSV・注文の画面の「個人情報」にだけ表示します。",
+                    "default": false
+                },
+                "noshi_name_max": {
+                    "type": "text",
+                    "label": "名入れの文字数",
+                    "help": "1 から 20 の数で入れます。空なら 10 文字です。",
+                    "pattern": "[1-9]|1[0-9]|20",
+                    "max": 2
+                }
+            }
+        }
+    }
+}

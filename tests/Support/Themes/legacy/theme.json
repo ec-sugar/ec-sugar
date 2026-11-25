@@ -1,0 +1,11 @@
+{
+    "theme_api": 2,
+    "sections": {
+        "hero": {
+            "label": "ヒーロー",
+            "fields": {
+                "heading": { "type": "text", "label": "見出し", "max": 60 }
+            }
+        }
+    }
+}

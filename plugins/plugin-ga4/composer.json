@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-ga4",
+    "description": "EC-SUGAR の App: Google アナリティクス 4（GA4、gtag.js）。ショップのアクセスと購入を計測する（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginGa4\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginGa4\\Ga4ServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "ga4",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "analytics",
+            "settings": {
+                "measurement_id": {
+                    "type": "text",
+                    "label": "測定 ID",
+                    "help": "G- で始まる英大文字と数字（例: G-ABC123DEF4）。Google アナリティクスの「管理」→「データストリーム」→ ウェブのストリームで見られます。",
+                    "pattern": "G-[A-Z0-9]{4,20}",
+                    "max": 22,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "Google LLC",
+                    "data": "見たページの URL、参照元の URL、端末とブラウザの情報、Cookie の識別子、購入したときの注文の番号・金額・通貨・商品の ID と数",
+                    "purpose": "ショップのアクセス解析（Google アナリティクス）",
+                    "policy": "https://policies.google.com/privacy?hl=ja"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "ga4.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://www.googletagmanager.com"],
+                    "connect-src": ["https://www.googletagmanager.com", "https://*.google-analytics.com", "https://*.google.com"],
+                    "img-src": ["https://www.googletagmanager.com", "https://*.google-analytics.com"]
+                },
+                "consent": ["analytics"]
+            }
+        }
+    }
+}

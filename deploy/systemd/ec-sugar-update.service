@@ -1,0 +1,14 @@
+# 自動の更新（ADR 0030）。新しいコミットを取る → イメージを作る → 控え → 移行 → 入れ替え → 健全か → 駄目なら前へ戻す
+# 結果は /srv/ec-sugar/state/last_update に残る（sudo ec-sugar status で見る）
+[Unit]
+Description=EC-SUGAR automatic update
+Requires=docker.service
+After=docker.service network-online.target ec-sugar.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar update --auto
+# イメージを作るので長くかかることがある
+TimeoutStartSec=3600
+Nice=10

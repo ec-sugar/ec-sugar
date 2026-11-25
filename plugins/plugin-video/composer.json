@@ -1,0 +1,127 @@
+{
+    "name": "ec-sugar/plugin-video",
+    "description": "EC-SUGAR の App: 動画（YouTube・Vimeo）のセクション。ページに動画を置く（ページを開いた時から枠を出す。自動の再生・音を消す・操作の表示・繰り返しを選べる。ADR 0040）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginVideo\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginVideo\\VideoServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "video",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "page",
+            "disclosure": [
+                {
+                    "company": "Google LLC（YouTube）",
+                    "data": "動画のセクションのあるページを表示したとき: IP アドレス、端末とブラウザの情報、ショップのアドレス（ドメインまで）、見た動画と再生の状況",
+                    "purpose": "ページの中に YouTube の動画を表示するため（プライバシー強化モード youtube-nocookie.com で埋め込みます）",
+                    "policy": "https://policies.google.com/privacy?hl=ja"
+                },
+                {
+                    "company": "Vimeo.com, Inc.",
+                    "data": "動画のセクションのあるページを表示したとき: IP アドレス、端末とブラウザの情報、ショップのアドレス（ドメインまで）、見た動画と再生の状況",
+                    "purpose": "ページの中に Vimeo の動画を表示するため（追跡しない設定 dnt=1 で埋め込みます）",
+                    "policy": "https://vimeo.com/privacy"
+                }
+            ],
+            "sections": {
+                "app_video": {
+                    "label": "動画",
+                    "patterns": {
+                        "wide": {
+                            "label": "横いっぱい",
+                            "wireframe": "video-wide"
+                        },
+                        "narrow": {
+                            "label": "本文と同じ幅",
+                            "wireframe": "video-narrow"
+                        }
+                    },
+                    "fields": {
+                        "url": {
+                            "type": "text",
+                            "label": "動画の URL",
+                            "max": 200,
+                            "help": "YouTube か Vimeo の動画のページの URL を貼ってください"
+                        },
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "caption": {
+                            "type": "text",
+                            "label": "動画の説明",
+                            "max": 200,
+                            "help": "動画の下に出す短い文。空でもかまいません"
+                        },
+                        "autoplay": {
+                            "type": "choice",
+                            "label": "自動で再生する",
+                            "options": {
+                                "off": "しない",
+                                "on": "する"
+                            },
+                            "help": "ページを開くと自動で再生を始めます。ブラウザは音ありの自動再生を止めるため、自動でミュートになります。お客さんが動画を止められるよう、「操作の表示」は「出す」のままにしてください"
+                        },
+                        "mute": {
+                            "type": "choice",
+                            "label": "音を消す（ミュート）",
+                            "options": {
+                                "off": "しない",
+                                "on": "する"
+                            },
+                            "help": "最初から音を消して再生します（お客さんは操作の表示から音を出せます）。自動で再生するときは、選ばなくてもミュートになります"
+                        },
+                        "controls": {
+                            "type": "choice",
+                            "label": "操作の表示（再生バーなど）",
+                            "options": {
+                                "show": "出す",
+                                "hide": "出さない"
+                            },
+                            "help": "再生バーなどを隠します（Vimeo は有料プランの動画だけ）。自動で再生して操作の表示も隠すと、お客さんが動画を止められないことがあるため、5 秒より短い動画にしてください"
+                        },
+                        "loop": {
+                            "type": "choice",
+                            "label": "繰り返す（ループ）",
+                            "options": {
+                                "off": "しない",
+                                "on": "する"
+                            },
+                            "help": "終わったら最初から再生し直します"
+                        }
+                    },
+                    "example": {
+                        "heading": "動画で見る"
+                    },
+                    "embed": {
+                        "frame-src": ["https://www.youtube-nocookie.com/embed/", "https://player.vimeo.com/video/"],
+                        "links": ["https://www.youtube.com/watch", "https://vimeo.com/"],
+                        "sandbox": ["allow-scripts", "allow-same-origin", "allow-presentation", "allow-popups", "allow-popups-to-escape-sandbox"],
+                        "allow": ["autoplay", "encrypted-media", "fullscreen", "picture-in-picture"]
+                    }
+                }
+            }
+        }
+    }
+}

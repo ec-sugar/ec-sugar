@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-microsoft-uet",
+    "description": "EC-SUGAR の App: Microsoft 広告の UET タグ（Bing などの検索広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginMicrosoftUet\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginMicrosoftUet\\MicrosoftUetServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "microsoft-uet",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "tag_id": {
+                    "type": "text",
+                    "label": "UET タグ ID",
+                    "help": "Microsoft 広告の「ツール」→「UET タグ」の一覧に出る数字です（例: 343012345）。",
+                    "pattern": "[0-9]{5,12}",
+                    "max": 12,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "Microsoft Corporation",
+                    "data": "見たページの URL、参照元、ブラウザと端末の情報、Cookie の識別子、購入したときの注文の番号・金額・通貨・品の ID と数",
+                    "purpose": "Microsoft 広告（Bing などの検索広告）の効果の測定と、広告の配信（リマーケティング）のため",
+                    "policy": "https://privacy.microsoft.com/ja-jp/privacystatement"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "microsoft-uet.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://bat.bing.com"],
+                    "connect-src": ["https://bat.bing.com", "https://bat.bing.net"],
+                    "img-src": ["https://bat.bing.com", "https://bat.bing.net"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

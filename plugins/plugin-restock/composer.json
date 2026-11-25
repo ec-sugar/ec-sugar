@@ -1,0 +1,43 @@
+{
+    "name": "ec-sugar/plugin-restock",
+    "description": "EC-SUGAR 公式の App: 再入荷のお知らせ（売り切れの種類にメールを登録し、入荷したら 1 回だけ知らせる）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginRestock\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginRestock\\RestockServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "restock",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "products",
+            "settings": {
+                "confirm_message": {
+                    "type": "text",
+                    "label": "確認メールに添える一言",
+                    "help": "登録の確認メールの最初に出す一言（200 文字まで。改行と < > \" ' ` \\ は使えません）。空なら添えません。",
+                    "pattern": ".{1,200}",
+                    "max": 200
+                }
+            }
+        }
+    }
+}

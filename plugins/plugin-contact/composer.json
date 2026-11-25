@@ -1,0 +1,55 @@
+{
+    "name": "ec-sugar/plugin-contact",
+    "description": "EC-SUGAR 公式の App: お問い合わせ（ショップのフォームで受け付け、管理画面で読んでメールで返信する）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginContact\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginContact\\ContactServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "contact",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "customers",
+            "settings": {
+                "notify_email": {
+                    "type": "text",
+                    "label": "通知を受け取るメールアドレス",
+                    "help": "新しいお問い合わせが届いたら、このアドレスへ「1 件あります」と知らせます（本文は載せません）。空なら知らせず、管理画面のホームにだけ出します。",
+                    "secret": true,
+                    "pattern": "[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63})+",
+                    "max": 200
+                },
+                "retention": {
+                    "type": "choice",
+                    "label": "対応済みのお問い合わせを削除するまでの期間",
+                    "help": "「済み」にしてからこの期間がたつと、名前・メールアドレス・本文・返信を自動で削除します（毎日の定期チェックで）。",
+                    "options": {
+                        "half_year": "半年",
+                        "one_year": "1 年",
+                        "three_years": "3 年"
+                    },
+                    "default": "one_year"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,83 @@
+{
+    "name": "ec-sugar/plugin-shop-notify",
+    "description": "EC-SUGAR 公式の App: 店への通知（注文が入った・取り消された・在庫が少なくなったを、Slack か店のメールへ。個人情報は載せない）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginShopNotify\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginShopNotify\\ShopNotifyServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "shop-notify",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "operations",
+            "settings": {
+                "slack_webhook_url": {
+                    "type": "text",
+                    "label": "Slack の Webhook の URL",
+                    "help": "Slack で作った Incoming Webhook の URL（https://hooks.slack.com/services/ で始まるもの）。それ以外の URL は使えません。入れた URL は画面に出しません。",
+                    "secret": true,
+                    "pattern": "https://hooks\\.slack\\.com/services/[A-Za-z0-9_-]{1,40}/[A-Za-z0-9_-]{1,40}/[A-Za-z0-9_-]{1,80}",
+                    "max": 200
+                },
+                "mail_to": {
+                    "type": "text",
+                    "label": "通知を受けるメールアドレス",
+                    "help": "お店の人が通知を受けるメールアドレス（1 つ）。入れたアドレスは画面に出しません。",
+                    "secret": true,
+                    "pattern": "[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\\.[A-Za-z0-9-]{1,63})+",
+                    "max": 200
+                },
+                "on_paid": {
+                    "type": "toggle",
+                    "label": "注文が入ったら通知する",
+                    "help": "お支払いが確認できた時（0 円の注文は受け付けた時）に知らせます。",
+                    "default": true
+                },
+                "on_cancelled": {
+                    "type": "toggle",
+                    "label": "注文が取り消されたら通知する",
+                    "help": "お支払いの済んだ注文（0 円の注文も）が取り消された・返金された時に知らせます。",
+                    "default": true
+                },
+                "on_low_stock": {
+                    "type": "toggle",
+                    "label": "在庫が少なくなったら通知する",
+                    "help": "商品の種類ごとに、注文できる在庫の数が下の数以下になった時に 1 回知らせます。入荷などで数が戻ったあと、また減った時にもう一度知らせます。",
+                    "default": true
+                },
+                "low_stock_threshold": {
+                    "type": "choice",
+                    "label": "在庫が少ないとみなす数",
+                    "options": {
+                        "le0": "売り切れた時だけ（0）",
+                        "le1": "1 点以下",
+                        "le3": "3 点以下",
+                        "le5": "5 点以下",
+                        "le10": "10 点以下",
+                        "le20": "20 点以下"
+                    },
+                    "default": "le3"
+                }
+            }
+        }
+    }
+}

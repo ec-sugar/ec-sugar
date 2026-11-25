@@ -1,0 +1,57 @@
+{
+    "name": "ec-sugar/plugin-referral",
+    "description": "EC-SUGAR 公式の App: 友だち紹介（会員ごとの紹介のリンクから来た人が会員になり、最初の注文が発送されたら、紹介した人と紹介された人の両方にポイント）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginReferral\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginReferral\\ReferralServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "referral",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "referrer_points": {
+                    "type": "text",
+                    "label": "紹介した人に付けるポイント",
+                    "help": "0〜10000（空なら 500）。0 なら付けません。設定の「ポイント」を「使う」にしている時だけ付きます。",
+                    "pattern": "0|[1-9][0-9]{0,3}|10000",
+                    "max": 5
+                },
+                "friend_points": {
+                    "type": "text",
+                    "label": "紹介された人に付けるポイント",
+                    "help": "0〜10000（空なら 500）。0 なら付けません。設定の「ポイント」を「使う」にしている時だけ付きます。",
+                    "pattern": "0|[1-9][0-9]{0,3}|10000",
+                    "max": 5
+                },
+                "monthly_limit": {
+                    "type": "text",
+                    "label": "1 人が 1 か月に紹介でポイントを受け取れる人数",
+                    "help": "1〜100 の数（空なら 10）。上限を超えた紹介にはポイントを付けません（1 か月は、日本時間の毎月 1 日から末日までです）。",
+                    "pattern": "[1-9][0-9]?|100",
+                    "max": 3
+                }
+            }
+        }
+    }
+}

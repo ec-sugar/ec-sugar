@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# push 前: 数十秒で終わる検査だけ（テスト・ブラウザのテストは CI が流し、合格しないと main に入らない。ADR 0035）。
+# 手元で通しの検査はしない（固まって作業が飛ぶ）。束で流すなら make test-remote
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+vendor/bin/pint --test
+vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+
+# npm の許可リストの古い行（取り下げられた勧告）の検知。1 秒ほど。
+# CI の e2e がこれで落ちるのを push 前に止める（2026-11-19 までに 2 回落ちた）
+if [ -f ops/dev/npm-audit.sh ]; then
+  bash ops/dev/npm-audit.sh
+fi
+
+# 管理画面と店頭のビルド（1〜2 秒）。JS の書き間違いで CI の image と e2e が落ちるのを push 前に止める
+# （2026-11-18 に `Identifier 'CONTENT' has already been declared` で落ちた）。
+# 依存が入っていない作業場所（worktree など）では飛ばす
+if [ -d node_modules ]; then
+  npm run build --silent
+else
+  echo "node_modules が無いので管理画面のビルドは飛ばします（npm ci で入れてから push すると CI の空振りが減ります）"
+fi
+
+# 公開用の木を書き出せるか（内輪の言葉・秘密のファイルの形。数秒）。CI の check でも見るが、ここで分かれば 9 分待たない。
+# 2026-11-19 に、ADR に書いた内輪の言葉 1 つで CI が止まった。
+# 書き出すのはコミットの中身だけなので、作業ツリーが汚れている時は流せない。その時は飛ばす（CI が見る）
+if [ -f release/export.sh ]; then
+  if [ -z "$(git status --porcelain)" ]; then
+    if ! out=$(bash release/export.sh --check --no-gitleaks 2>&1); then
+      printf '%s\n' "$out" | tail -20
+      echo "✗ 公開用の木を書き出せません（上の言葉を直すか、公開に出さないものなら release/public-paths.txt で除く）"
+      exit 1
+    fi
+  else
+    echo "作業ツリーに未コミットの変更があるので、公開用の木の検査は飛ばします（CI が見ます）"
+  fi
+fi

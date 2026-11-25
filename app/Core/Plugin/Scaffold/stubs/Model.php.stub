@@ -1,0 +1,50 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__\Models;
+
+use Carbon\CarbonImmutable;
+use EcSugar\Plugin__STUDLY__\__STUDLY__Status;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\Model;
+
+/**
+ * __TITLE__の記録 1 つ（ひな形。欄は App に合わせて変える）。書くのは __STUDLY__Items だけ（連鎖のロックとイベント）。
+ *
+ * 個人情報（お客さんの名前・メール・住所・電話）を持つときは、平文の列にしない（ADR 0010）:
+ *   - 列は text にして、casts() に App\Core\Crypto\Casts\TenantEncrypted（配列なら TenantEncryptedJson）を書く（店の鍵で暗号化）
+ *       'email' => TenantEncrypted::class,
+ *   - 探す必要がある列だけ、HMAC のブラインドインデックスの列（char 64）を足し、
+ *     use App\Core\Crypto\Concerns\HasBlindIndexes; と、「平文の属性 => 索引の列」を返す blindIndexes() を書く（引くのは完全一致だけ）
+ *       protected function blindIndexes(): array { return ['email' => 'email_index']; }
+ *   - 例は plugins/plugin-restock の RestockRequest
+ *
+ * @property string $id
+ * @property string $title
+ * @property __STUDLY__Status $status
+ * @property ?CarbonImmutable $settled_at
+ * @property CarbonImmutable $created_at
+ * @property CarbonImmutable $updated_at
+ */
+final class __STUDLY__Item extends Model
+{
+    use HasUlids;
+
+    protected $table = '__PREFIX___items';
+
+    protected $fillable = ['title', 'status', 'settled_at'];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'status' => __STUDLY__Status::class,
+            'settled_at' => 'immutable_datetime',
+            'created_at' => 'immutable_datetime',
+            'updated_at' => 'immutable_datetime',
+        ];
+    }
+}

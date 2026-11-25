@@ -1,0 +1,56 @@
+{
+    "name": "ec-sugar/plugin-newsletter",
+    "description": "EC-SUGAR 公式の App: メルマガ・一斉メール（お知らせのメールに登録したお客さんへ、店からのお知らせをメールで送る。特定電子メール法のオプトイン・表示・ワンクリックの配信停止）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginNewsletter\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginNewsletter\\NewsletterServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "newsletter",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "per_minute": {
+                    "type": "choice",
+                    "label": "1 分に送る数",
+                    "help": "配信のメールを 1 分にこの数まで送ります。お使いのメールの送信サーバー（メール配信サービス）の、1 時間・1 日あたりの送信の上限を超えないように選びます。",
+                    "options": {
+                        "m5": "5 通",
+                        "m10": "10 通",
+                        "m30": "30 通",
+                        "m60": "60 通",
+                        "m120": "120 通"
+                    },
+                    "default": "m10"
+                },
+                "form_message": {
+                    "type": "text",
+                    "label": "登録ページに添える一言",
+                    "help": "ショップの登録ページ（/p/newsletter）の見出しの下に出す一言（届く内容・頻度など。200 文字まで。改行と < > \" ' ` \\ は使えません）。空なら既定の文です。",
+                    "pattern": ".{1,200}",
+                    "max": 200
+                }
+            }
+        }
+    }
+}

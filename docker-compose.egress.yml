@@ -1,0 +1,29 @@
+# 外への通信を止める形（EC_SUGAR_EGRESS_MODE=enforce。ADR 0102）
+#
+# env ファイルの EC_SUGAR_EGRESS_MODE が enforce のとき、ec-sugar（deploy/lib/common.sh の ec_dc）が docker-compose.prod.yml に重ねる
+# （sudo ec-sugar egress enforce で切り替える。見張りの形 watch が既定）。Cloudflare Tunnel の形・後ろに置く形とも重ねられる。
+# 隔離した写し（docker-compose.isolated.yml）はこの後に重ね、網をもっと狭くする（internal だけ）。
+#
+#   - app・queue・scheduler は外へ出られない網（internal・egress_in）だけにする。外へ出る網（edge・egress）から外す。
+#     外への https は出口の代理（egress）だけを通る（HTTPS_PROXY。docker-compose.prod.yml）。代理は許す一覧に無い名前を断る
+#   - DNS: 外へ出られない網だけにいるコンテナは、Docker の中の DNS が外の名前を引かない（Docker 26 から。インストーラーは 28.1 以上）。
+#     外の任意の名前を引かせて中身を DNS で運ぶ道も無い（docker/check-egress.sh が確かめる）
+#   - メール: MAIL_HOST の名前を代理の住所に向け（extra_hosts）、代理が MAIL_HOST:MAIL_PORT へだけ中継する。TLS はアプリとメールの送り口の間で
+#     閉じたまま（証明書の名前は MAIL_HOST のまま確かめる）。MAIL_HOST が住所（IP）・Mailpit のときは向けない
+#     （ec_dc が EC_SUGAR_EGRESS_SMTP_NAME に向けない印の名前を入れる。住所の MAIL_HOST では止める形に切り替えられない: ec-sugar egress が断る）
+#   - nginx から PHP へは網でなくソケット（fpm）なので、管理画面とショップはそのまま開ける
+#
+# !override は compose 2.24.4 から（網の一覧を足すのでなく置き換える）。守りの確かめは docker/check-compose.sh の 14 と docker/check-egress.sh
+x-egress-mail: &egress-mail
+  - "${EC_SUGAR_EGRESS_SMTP_NAME:-${MAIL_HOST:-smtp-relay.invalid}}:${EC_SUGAR_EGRESS_ADDR:-172.30.255.194}"
+
+services:
+  app:
+    networks: !override [internal, egress_in]
+    extra_hosts: *egress-mail
+  queue:
+    networks: !override [internal, egress_in]
+    extra_hosts: *egress-mail
+  scheduler:
+    networks: !override [internal, egress_in]
+    extra_hosts: *egress-mail

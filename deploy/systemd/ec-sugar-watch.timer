@@ -1,0 +1,10 @@
+# 10 分ごと。運営の様子は「最後に集めた時刻が 30 分より古い」で定期の処理の止まりを見るので、止まってから 30〜40 分でメールが届く
+[Unit]
+Description=EC-SUGAR watch timer
+
+[Timer]
+OnCalendar=*:0/10
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

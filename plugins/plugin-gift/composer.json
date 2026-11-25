@@ -1,0 +1,43 @@
+{
+    "name": "ec-sugar/plugin-gift",
+    "description": "EC-SUGAR 公式の App: 贈り物（お届け先は受け取る人が入力する。期限までに入力がなければ自動で返金する。ADR 0055）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginGift\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginGift\\GiftServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "gift",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "expiry_days": {
+                    "type": "text",
+                    "label": "受け取りの期限（日）",
+                    "help": "お支払いの後、贈る相手がお届け先を入力するまでの日数です。1〜60 の数で入力します。空なら 14 日です。期限を過ぎると、ご注文を自動で取り消して全額を返金し、在庫を戻します。",
+                    "pattern": "[1-9]|[1-5][0-9]|60",
+                    "max": 2
+                }
+            }
+        }
+    }
+}

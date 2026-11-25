@@ -1,0 +1,18 @@
+# ホストの防火壁（deploy/lib/common.sh の ec_firewall_apply）。Docker を起こし直すたびに足し直す（PartOf）:
+#   どの形でも: ホストの root でない利用者から始めた、EC-SUGAR のコンテナ（app・db・redis・nginx）への接続を断る（OUTPUT の鎖。IPv4 と IPv6。
+#     コンテナから始めた接続の返りは通す）
+#   ステージングだけ: 待ち受け（80・443 番）を決めた家の LAN だけにする（ADR 0029。Docker は ufw を迂回するので DOCKER-USER の鎖）
+# ほかの道具（Plesk のファイアウォールの適用・iptables-restore・ufw の reload）に消されたら、sudo ec-sugar firewall（毎晩の更新の確かめでも当て直す）
+[Unit]
+Description=EC-SUGAR host firewall
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ec-sugar firewall
+
+[Install]
+WantedBy=multi-user.target docker.service

@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-meta-pixel",
+    "description": "EC-SUGAR の App: Meta ピクセル（Facebook・Instagram 広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginMetaPixel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginMetaPixel\\MetaPixelServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "meta-pixel",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "pixel_id": {
+                    "type": "text",
+                    "label": "ピクセル ID",
+                    "help": "Meta のイベントマネージャで、データソースのピクセルを選ぶと出る数字です（例: 123456789012345）。",
+                    "pattern": "[0-9]{10,20}",
+                    "max": 20,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "Meta Platforms, Inc.",
+                    "data": "見たページの URL、参照元、ブラウザと端末の情報、Cookie の識別子、ボタンのクリックなどの操作、購入したときの注文の番号・金額・品",
+                    "purpose": "Facebook・Instagram の広告の効果の測定と、広告の配信のため",
+                    "policy": "https://www.facebook.com/privacy/policy/"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "meta-pixel.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://connect.facebook.net"],
+                    "connect-src": ["https://www.facebook.com"],
+                    "img-src": ["https://www.facebook.com"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

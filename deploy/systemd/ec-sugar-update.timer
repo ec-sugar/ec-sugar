@@ -1,0 +1,12 @@
+# 自動の更新の時刻。@ON_CALENDAR@ と @DELAY@ はインストーラーが使い方（本番・ステージング）で決める
+#   ステージング: 15 分ごと（決めた枝の新しいコミットを見る）／本番: 夜に 1 回（サーバーごとに時刻をずらす。時刻は答えの TIMEZONE の帯で）
+[Unit]
+Description=EC-SUGAR automatic update timer
+
+[Timer]
+OnCalendar=@ON_CALENDAR@
+RandomizedDelaySec=@DELAY@
+Persistent=true
+
+[Install]
+WantedBy=timers.target

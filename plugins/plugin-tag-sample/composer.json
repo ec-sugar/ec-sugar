@@ -1,0 +1,88 @@
+{
+    "name": "ec-sugar/plugin-tag-sample",
+    "description": "EC-SUGAR 見本の App: ショップへのタグの差し込み口（ADR 0034）を通して確認する試験用のタグ。実在の宛先は持たない",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginTagSample\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginTagSample\\TagSampleServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "tag-sample",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "analytics",
+            "settings": {
+                "tag_id": {
+                    "type": "text",
+                    "label": "タグの ID",
+                    "help": "TS- で始まる英大文字と数字（例: TS-ABC123）。",
+                    "pattern": "TS-[A-Z0-9]{6,10}",
+                    "max": 13,
+                    "required": true
+                },
+                "send_page_views": {
+                    "type": "toggle",
+                    "label": "ページの表示を送る",
+                    "default": true
+                },
+                "region": {
+                    "type": "choice",
+                    "label": "送信先の地域",
+                    "options": {
+                        "jp": "日本",
+                        "us": "米国"
+                    },
+                    "default": "jp"
+                },
+                "api_secret": {
+                    "type": "text",
+                    "label": "サーバーから送るときの鍵",
+                    "help": "ショップには出しません。保存すると暗号化され、画面にも記録にも中身は出ません。",
+                    "pattern": "[A-Za-z0-9_-]{16,64}",
+                    "max": 64,
+                    "secret": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "見本の計測サービス（試験用・実在しません）",
+                    "data": "見たページの URL、ブラウザの種類、購入したときの注文の番号と金額",
+                    "purpose": "ショップのアクセス解析を試すため",
+                    "policy": "https://tags.example.test/privacy"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "tag-sample.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://tags.example.test"],
+                    "connect-src": ["https://collect.example.test"],
+                    "img-src": ["https://*.example.test"]
+                },
+                "consent": ["analytics"]
+            }
+        }
+    }
+}

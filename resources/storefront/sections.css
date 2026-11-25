@@ -1,0 +1,2191 @@
+/*
+ * 核の汎用の区画（basic_*）と自由なページの既定の画面の見た目（ADR 0039 区切り 3・と 核の共通の区画）。
+ * テーマのビルドに頼らず、テーマの色の変数（--color-canvas・--color-ink・--color-ink-soft・--color-line・--color-band・--color-accent・
+ * --color-accent-hover・--color-on-accent）で付ける。規則はすべて :where() で強さ 0 なので、テーマは .sugar-section・.sugar-free-page などを
+ * 自分の CSS で上書きできる。どの区画もレスポンシブ（狭い画面では縦に積み、横にはみ出さない）。区画の間の余白は区画の内側で持つ
+ *
+ * 字と角の丸みと余白は、テーマが層（@layer）の外の :root で次の変数を書けば合う（書かなければ下の既定）:
+ *   --sugar-radius（写真・札の角。既定 0.75rem）・--sugar-button-radius（ボタンの角。既定 999px）・
+ *   --sugar-heading-font（見出しの字。既定は本文と同じ）・--sugar-heading-weight（既定 600）・--sugar-section-space（区画の上下の余白。既定 1.5rem）
+ * 動きは核の motion.css の印（data-motion-reveal・data-motion-card）と変数（--motion-*）で、動きを減らす設定では動かさない
+ */
+
+:where(.sugar-free-page) {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    max-width: 64rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-free-page__title) {
+    margin: 0 0 1rem;
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-section) {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding-block: var(--sugar-section-space, 1.5rem);
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-section img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-section__heading) {
+    margin: 0 0 0.75rem;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.25rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.5;
+}
+
+:where(.sugar-section__heading--center) {
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+:where(.sugar-section__body) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    line-height: 1.9;
+    white-space: pre-line;
+}
+
+:where(.sugar-section__button) {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.75rem 1.5rem;
+    border: 0;
+    border-radius: var(--sugar-button-radius, 999px);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+:where(.sugar-section__button:hover) {
+    background: var(--color-accent-hover, var(--color-accent, #3f3f46));
+}
+
+:where(.sugar-section__placeholder) {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    max-height: 18rem;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+    border: 1px dashed var(--color-line, #e4e4e7);
+}
+
+/* 見出しと文 */
+:where(.sugar-text) {
+    max-width: 48rem;
+}
+
+:where(.sugar-text[data-pattern="center"]) {
+    margin-inline: auto;
+    text-align: center;
+}
+
+/* 写真と文: 広い画面では左右、狭い画面では写真を上に縦積み */
+:where(.sugar-image-text) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-image-text:has(.sugar-image-text__media)) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 2.5rem;
+    }
+
+    :where(.sugar-image-text[data-pattern="image_right"] .sugar-image-text__media) {
+        order: 2;
+    }
+}
+
+/* 写真 */
+:where(.sugar-image[data-pattern="narrow"]) {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-image img) {
+    width: 100%;
+}
+
+:where(.sugar-image__caption) {
+    margin-top: 0.5rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+}
+
+/* ボタン */
+:where(.sugar-button[data-pattern="center"]) {
+    text-align: center;
+}
+
+/* 商品の並び: 2 列 → 4 列 */
+:where(.sugar-products__grid) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-products__grid) {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+}
+
+:where(.sugar-products__card) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    color: inherit;
+    text-decoration: none;
+}
+
+:where(.sugar-products__card img, .sugar-products__card .sugar-section__placeholder) {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+:where(.sugar-products__price) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+}
+
+/* 商品の並びの「横に流れる」（App「おすすめの区画」の scroll。ADR 0071）。並びの箱の中だけが横に動く */
+:where(.sugar-products__grid--scroll) {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.75rem;
+}
+
+:where(.sugar-products__grid--scroll > li) {
+    flex: 0 0 44%;
+    min-width: 0;
+    scroll-snap-align: start;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-products__grid--scroll > li) {
+        flex-basis: calc((100% - 4.5rem) / 4);
+    }
+}
+
+/* ------------------------------------------------------------------
+ * 核の共通の区画。どれも狭い画面で 1 列か 2 列に組み変わり、横に流れる並びは自分の箱の中だけが動く
+ * ------------------------------------------------------------------ */
+
+/* 編集の画面のプレビューで、まだ中身の無い区画の知らせ（ショップには出ない） */
+:where(.sugar-section__empty) {
+    margin: 0;
+    padding: 1.25rem;
+    border: 1px dashed var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* お客さんの声 */
+:where(.sugar-voices__list) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-voices[data-pattern="cards"] .sugar-voices__list) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1.5rem;
+    }
+}
+
+:where(.sugar-voices__card) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    box-sizing: border-box;
+    height: 100%;
+    margin: 0;
+    padding: 1.5rem;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-voices__quote) {
+    flex: 1;
+    margin: 0;
+}
+
+:where(.sugar-voices__quote p) {
+    margin: 0;
+    line-height: 1.9;
+    white-space: pre-line;
+}
+
+:where(.sugar-voices__quote p)::before {
+    content: "“";
+    display: block;
+    color: var(--color-accent, #18181b);
+    font-size: 2rem;
+    line-height: 1;
+}
+
+:where(.sugar-voices__who) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+:where(.sugar-voices__name) {
+    font-weight: 600;
+}
+
+:where(.sugar-voices__detail) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+/* 大きな引用: 地の色を外し、文を大きく中央に */
+:where(.sugar-voices[data-pattern="quote"] .sugar-voices__list) {
+    gap: 2.5rem;
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-voices[data-pattern="quote"] .sugar-voices__card) {
+    align-items: center;
+    padding: 0;
+    background: none;
+    text-align: center;
+}
+
+:where(.sugar-voices[data-pattern="quote"] .sugar-voices__quote p) {
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.25rem;
+    line-height: 1.8;
+}
+
+:where(.sugar-voices[data-pattern="quote"] .sugar-voices__who) {
+    justify-content: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-voices[data-pattern="quote"] .sugar-voices__quote p) {
+        font-size: 1.5rem;
+    }
+}
+
+/* よくある質問（<details>。印の「＋」は線 2 本で描き、開くと縦の線が寝て「−」になる） */
+:where(.sugar-faq) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+}
+
+:where(.sugar-faq[data-pattern="list"]) {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-faq[data-pattern="list"] .sugar-faq__intro) {
+    text-align: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-faq[data-pattern="side"]) {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+        gap: 3rem;
+        align-items: start;
+    }
+}
+
+:where(.sugar-faq__intro .sugar-section__button) {
+    margin-top: 0.5rem;
+}
+
+:where(.sugar-faq__list) {
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-faq__item) {
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-faq__question) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 0.25rem;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+
+:where(.sugar-faq__question)::-webkit-details-marker {
+    display: none;
+}
+
+:where(.sugar-faq__sign) {
+    position: relative;
+    flex: none;
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+:where(.sugar-faq__sign)::before,
+:where(.sugar-faq__sign)::after {
+    content: "";
+    position: absolute;
+    inset: 50% 0 auto;
+    height: 1.5px;
+    margin-top: -0.75px;
+    background: currentColor;
+}
+
+:where(.sugar-faq__sign)::after {
+    transform: rotate(90deg);
+}
+
+:where(.sugar-faq__item[open] .sugar-faq__sign)::after {
+    transform: rotate(0deg);
+}
+
+:where(.sugar-faq__answer) {
+    padding: 0 0.25rem 1.25rem;
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-faq__answer p) {
+    margin: 0;
+    line-height: 1.9;
+    white-space: pre-line;
+}
+
+/* 開いた時: 答えが少し上から薄く出る・印が寝る（transform と opacity だけ。動きを減らす設定と none では動かさない。docs/design/motion.md） */
+@keyframes sugar-faq-open {
+    from {
+        opacity: 0;
+        transform: translateY(calc(-1 * var(--motion-nudge, 3px)));
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    :where(:root:not([data-motion="none"]) .sugar-faq__item[open] .sugar-faq__answer) {
+        animation: sugar-faq-open var(--motion-duration, 200ms) var(--motion-ease, ease-out);
+    }
+
+    :where(:root:not([data-motion="none"]) .sugar-faq__sign)::after {
+        transition: transform var(--motion-duration, 200ms) var(--motion-ease, ease-out);
+    }
+}
+
+/* 特長 */
+:where(.sugar-features__list) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-features[data-pattern="four"] .sugar-features__list) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-features[data-pattern="three"] .sugar-features__list) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 2rem;
+    }
+
+    :where(.sugar-features[data-pattern="four"] .sugar-features__list) {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 2rem;
+    }
+
+    :where(.sugar-features[data-pattern="list"] .sugar-features__list) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.75rem 3rem;
+    }
+}
+
+:where(.sugar-features__item) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    text-align: center;
+}
+
+:where(.sugar-features[data-pattern="list"] .sugar-features__item) {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1rem;
+    text-align: left;
+}
+
+:where(.sugar-features__icon) {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 999px;
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-features[data-pattern="list"] .sugar-features__icon) {
+    width: 2.5rem;
+    height: 2.5rem;
+}
+
+:where(.sugar-icon) {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+:where(.sugar-features__text) {
+    min-width: 0;
+}
+
+:where(.sugar-features__title) {
+    margin: 0 0 0.25rem;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1rem;
+    font-weight: var(--sugar-heading-weight, 600);
+}
+
+:where(.sugar-features__body) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.8;
+    white-space: pre-line;
+}
+
+/* 呼びかけの帯（色の帯・写真の上。写真が無ければ色の帯） */
+:where(.sugar-cta__panel) {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 14rem;
+    overflow: hidden;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    text-align: center;
+}
+
+:where(.sugar-cta__panel[data-photo]) {
+    min-height: 20rem;
+    background: var(--color-ink, #18181b);
+}
+
+:where(.sugar-cta .sugar-cta__image) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+:where(.sugar-cta__shade) {
+    position: absolute;
+    inset: 0;
+    background: var(--color-ink, #18181b);
+    opacity: 0.45;
+}
+
+:where(.sugar-cta__content) {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 40rem;
+    padding: 2.5rem 1.5rem;
+}
+
+:where(.sugar-cta__heading) {
+    margin: 0 0 0.75rem;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.5rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.5;
+}
+
+:where(.sugar-cta__body) {
+    margin: 0;
+    line-height: 1.9;
+    white-space: pre-line;
+}
+
+:where(.sugar-cta__button) {
+    display: inline-block;
+    margin-top: 1.25rem;
+    padding: 0.75rem 1.75rem;
+    border-radius: var(--sugar-button-radius, 999px);
+    background: var(--color-on-accent, #ffffff);
+    color: var(--color-ink, #18181b);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* ギャラリー */
+:where(.sugar-gallery__list) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-gallery[data-pattern="grid"] .sugar-gallery__list) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+    }
+}
+
+:where(.sugar-gallery__figure) {
+    margin: 0;
+}
+
+:where(.sugar-gallery__figure img, .sugar-gallery__figure .sugar-section__placeholder) {
+    width: 100%;
+    max-height: none;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+:where(.sugar-gallery__caption) {
+    margin-top: 0.375rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+}
+
+/* 石垣: 段（columns）に詰め、写真は縦横の比のまま */
+:where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__list) {
+    display: block;
+    columns: 2;
+    column-gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__list) {
+        columns: 3;
+        column-gap: 1rem;
+    }
+}
+
+:where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__item) {
+    break-inside: avoid;
+    margin-bottom: 0.75rem;
+}
+
+:where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__figure img) {
+    aspect-ratio: auto;
+}
+
+/* 写真を選ぶまでの枠は、石垣らしく高さを変える */
+:where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__item:nth-child(3n + 1) .sugar-section__placeholder) {
+    aspect-ratio: 3 / 4;
+}
+
+:where(.sugar-gallery[data-pattern="masonry"] .sugar-gallery__item:nth-child(3n + 2) .sugar-section__placeholder) {
+    aspect-ratio: 4 / 3;
+}
+
+:where(.sugar-gallery[data-pattern="scroll"] .sugar-gallery__figure img, .sugar-gallery[data-pattern="scroll"] .sugar-gallery__figure .sugar-section__placeholder) {
+    aspect-ratio: 4 / 5;
+}
+
+/* 1 つの商品を大きく */
+:where(.sugar-product) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-product[data-pattern="split"]) {
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 3rem;
+    }
+}
+
+:where(.sugar-product__media) {
+    min-width: 0;
+}
+
+:where(.sugar-product .sugar-product__photo) {
+    width: 100%;
+    max-height: none;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+}
+
+:where(.sugar-product__thumbs) {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-product__thumbs img) {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+}
+
+:where(.sugar-product__panel) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+:where(.sugar-product__kicker) {
+    margin: 0;
+    color: var(--color-accent, #18181b);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+}
+
+:where(.sugar-product__title) {
+    margin: 0;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.5rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.4;
+}
+
+:where(.sugar-product__title a) {
+    color: inherit;
+    text-decoration: none;
+}
+
+:where(.sugar-product__price) {
+    margin: 0;
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-product__tax, .sugar-product__availability) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+}
+
+:where(.sugar-product__availability) {
+    margin: 0;
+}
+
+:where(.sugar-product__body) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    line-height: 1.9;
+    white-space: pre-line;
+}
+
+:where(.sugar-product__form) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+:where(.sugar-product__buy) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.75rem;
+}
+
+:where(.sugar-product__stepper) {
+    display: flex;
+    align-items: center;
+    height: 3rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-button-radius, 999px);
+}
+
+:where(.sugar-product__stepper button) {
+    width: 2.75rem;
+    height: 100%;
+    border: 0;
+    background: none;
+    color: inherit;
+    font-size: 1.125rem;
+    cursor: pointer;
+}
+
+:where(.sugar-product__stepper button:disabled) {
+    opacity: 0.4;
+}
+
+:where(.sugar-product__stepper input) {
+    width: 2.5rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: center;
+    appearance: textfield;
+}
+
+:where(.sugar-product__stepper input)::-webkit-inner-spin-button {
+    appearance: none;
+}
+
+:where(.sugar-product .sugar-product__add) {
+    flex: 1 1 10rem;
+    min-height: 3rem;
+    margin-top: 0;
+    cursor: pointer;
+}
+
+:where(.sugar-product .sugar-product__add:disabled) {
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-ink-soft, #52525b);
+    cursor: default;
+}
+
+:where(.sugar-product__error) {
+    margin: 0;
+    color: var(--color-danger, #b91c1c);
+    font-size: 0.8125rem;
+}
+
+:where(.sugar-product__more) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+}
+
+/* 種類とオプションの部品（核の部品。商品の画面の見た目はテーマの theme.css。ここは区画の中で崩れない最低限だけ） */
+:where(.sugar-product [data-variant-picker], .sugar-product [data-addon-fields]) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+:where(.sugar-product [data-variant-picker] select, .sugar-product [data-addon-fields] select, .sugar-product [data-addon-fields] input[type="text"]) {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+    font: inherit;
+}
+
+/* 写真が全面: 広い画面では写真を区画いっぱいに敷き、名前とカートの箱を右に重ねる。狭い画面では写真の下に箱 */
+@media (min-width: 768px) {
+    :where(.sugar-product[data-pattern="full"]) {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        min-height: 36rem;
+        padding: 2.5rem;
+        overflow: hidden;
+        border-radius: var(--sugar-radius, 0.75rem);
+    }
+
+    :where(.sugar-product[data-pattern="full"] .sugar-product__media) {
+        position: absolute;
+        inset: 0;
+    }
+
+    :where(.sugar-product[data-pattern="full"] .sugar-product__photo) {
+        height: 100%;
+        aspect-ratio: auto;
+        border-radius: 0;
+    }
+
+    :where(.sugar-product[data-pattern="full"] .sugar-product__panel) {
+        position: relative;
+        box-sizing: border-box;
+        width: min(26rem, 100%);
+        padding: 1.75rem;
+        border-radius: var(--sugar-radius, 0.75rem);
+        background: var(--color-canvas, #ffffff);
+    }
+}
+
+/* 入口を並べる（列に合わない余りの入口は、幅を分け合う） */
+:where(.sugar-entries__list) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-entries__item) {
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
+@media (min-width: 640px) {
+    :where(.sugar-entries__item) {
+        flex-basis: calc(50% - 0.5rem);
+    }
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-entries[data-pattern="three"] .sugar-entries__item) {
+        flex-basis: calc(33.333% - 0.6667rem);
+    }
+}
+
+:where(.sugar-entries__card) {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 12rem;
+    overflow: hidden;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+    color: inherit;
+    text-decoration: none;
+}
+
+/* 余りの入口が幅いっぱいに広がっても縦に伸びすぎないよう、高さに上限（写真は箱いっぱいに切り抜く） */
+:where(.sugar-entries__card[data-photo]) {
+    aspect-ratio: 4 / 5;
+    min-height: 0;
+    max-height: 30rem;
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-entries[data-pattern="two"] .sugar-entries__card[data-photo]) {
+    aspect-ratio: 4 / 3;
+}
+
+:where(.sugar-entries .sugar-entries__image) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    aspect-ratio: auto;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+:where(.sugar-entries__card[data-photo])::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(transparent 40%, var(--color-ink, #18181b));
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+:where(.sugar-entries__text) {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.5rem 1rem;
+    text-align: center;
+}
+
+:where(.sugar-entries__title) {
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.375rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.4;
+}
+
+:where(.sugar-entries__button) {
+    display: inline-block;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid currentColor;
+    border-radius: var(--sugar-button-radius, 999px);
+    font-size: 0.875rem;
+}
+
+/* 作り手・物語 */
+:where(.sugar-story) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-story[data-pattern="longform"]:has(.sugar-story__media)) {
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 3rem;
+    }
+}
+
+:where(.sugar-story__media) {
+    min-width: 0;
+}
+
+:where(.sugar-story__media img, .sugar-story__media .sugar-section__placeholder) {
+    width: 100%;
+    max-height: none;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+}
+
+:where(.sugar-story__text) {
+    min-width: 0;
+}
+
+:where(.sugar-story__kicker) {
+    margin: 0 0 0.5rem;
+    color: var(--color-accent, #18181b);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+}
+
+:where(.sugar-story[data-pattern="timeline"]) {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-story[data-pattern="timeline"] .sugar-story__text) {
+    text-align: center;
+}
+
+:where(.sugar-story__timeline) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* 縦の線と丸（狭い画面では左の端、広い画面では「いつ」の列の右） */
+:where(.sugar-story__timeline)::before {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.3125rem;
+    width: 1px;
+    background: var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-story__milestone) {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    padding-left: 1.75rem;
+}
+
+:where(.sugar-story__milestone)::before {
+    content: "";
+    position: absolute;
+    top: 0.45rem;
+    left: 0;
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 999px;
+    background: var(--color-accent, #18181b);
+}
+
+@media (min-width: 640px) {
+    :where(.sugar-story__timeline)::before {
+        left: 7.8125rem;
+    }
+
+    :where(.sugar-story__milestone) {
+        grid-template-columns: 6rem minmax(0, 1fr);
+        gap: 1.5rem;
+        padding-left: 0;
+    }
+
+    :where(.sugar-story__milestone)::before {
+        left: 7.5rem;
+    }
+
+    :where(.sugar-story__when) {
+        text-align: right;
+    }
+
+    :where(.sugar-story__event) {
+        grid-column: 2;
+        padding-left: 1.25rem;
+    }
+}
+
+:where(.sugar-story__when) {
+    color: var(--color-accent, #18181b);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-story__title) {
+    margin: 0 0 0.25rem;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1rem;
+    font-weight: var(--sugar-heading-weight, 600);
+}
+
+:where(.sugar-story__body) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.8;
+    white-space: pre-line;
+}
+
+/* ------------------------------------------------------------------
+ * 核の共通の区画の残り: 数字で見せる・ロゴの帯・手順と流れ・比べる表・余白と区切り
+ * ------------------------------------------------------------------ */
+
+/* 数字で見せる（3 つ並び: 狭い画面で 2 つずつ・広い画面で 3 つずつ、余りは中央に。写真と数字: 広い画面では写真が左、数字は 2 列） */
+:where(.sugar-numbers) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-numbers[data-pattern="photo"]:has(.sugar-numbers__media)) {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 3rem;
+    }
+}
+
+:where(.sugar-numbers__media, .sugar-numbers__text) {
+    min-width: 0;
+}
+
+:where(.sugar-numbers__media img, .sugar-numbers__media .sugar-section__placeholder) {
+    width: 100%;
+    max-height: none;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+}
+
+:where(.sugar-numbers__intro) {
+    margin-bottom: 1.5rem;
+}
+
+:where(.sugar-numbers[data-pattern="row"] .sugar-numbers__intro) {
+    max-width: 40rem;
+    margin-inline: auto;
+    text-align: center;
+}
+
+:where(.sugar-numbers__list) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* 3 つ並び: 数が列に合わないとき（1 つ・2 つ・4 つ目）も中央に寄せる（格子でなく折り返しの並び） */
+:where(.sugar-numbers[data-pattern="row"] .sugar-numbers__list) {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+:where(.sugar-numbers__item) {
+    min-width: 0;
+}
+
+:where(.sugar-numbers[data-pattern="row"] .sugar-numbers__item) {
+    flex: 0 1 calc((100% - 1rem) / 2);
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-numbers[data-pattern="row"] .sugar-numbers__list) {
+        gap: 2rem;
+    }
+
+    :where(.sugar-numbers[data-pattern="row"] .sugar-numbers__item) {
+        flex-basis: calc((100% - 4rem) / 3);
+    }
+}
+
+:where(.sugar-numbers[data-pattern="row"] .sugar-numbers__item) {
+    text-align: center;
+}
+
+:where(.sugar-numbers__figure) {
+    margin: 0;
+    color: var(--color-accent, #18181b);
+    font-family: var(--sugar-heading-font, inherit);
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.1;
+}
+
+:where(.sugar-numbers__value) {
+    font-size: clamp(2rem, 7vw, 3rem);
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-numbers__unit) {
+    margin-left: 0.125rem;
+    font-size: 1rem;
+}
+
+:where(.sugar-numbers__label) {
+    margin: 0.5rem 0 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.7;
+}
+
+/* ロゴの帯（1 行: 折り返して中央に。格子: 狭い画面で 2 列・広い画面で 4 列の札）。
+   ロゴは縦横の比のまま箱に収め、角を丸めない。白地の写真も地になじむよう乗算で重ねる（暗い地のテーマは mix-blend-mode を normal に上書きする） */
+:where(.sugar-logos__list) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem 2.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-logos[data-pattern="grid"] .sugar-logos__list) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-logos[data-pattern="grid"] .sugar-logos__list) {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+    }
+}
+
+:where(.sugar-logos__item) {
+    min-width: 0;
+}
+
+:where(.sugar-logos__logo) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    height: 3rem;
+    color: var(--color-ink-soft, #52525b);
+    text-decoration: none;
+}
+
+:where(.sugar-logos[data-pattern="grid"] .sugar-logos__logo) {
+    height: 5.5rem;
+    padding: 0.875rem 1rem;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-logos__image) {
+    width: auto;
+    max-width: min(9rem, 100%);
+    height: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 0;
+    mix-blend-mode: multiply;
+}
+
+:where(.sugar-logos__logo .sugar-section__placeholder) {
+    width: 6rem;
+    max-width: 100%;
+    aspect-ratio: auto;
+    mix-blend-mode: normal;
+}
+
+:where(.sugar-logos__name) {
+    font-family: var(--sugar-heading-font, inherit);
+    font-weight: var(--sugar-heading-weight, 600);
+    letter-spacing: 0.04em;
+    text-align: center;
+}
+
+:where(a.sugar-logos__logo:hover) {
+    color: var(--color-ink, #18181b);
+}
+
+/* 手順・流れ（番号の丸を線でつなぐ。狭い画面ではどちらのパターンも縦に積み、左の縦の線でつなぐ） */
+:where(.sugar-steps__intro) {
+    margin-bottom: 1.5rem;
+}
+
+:where(.sugar-steps[data-pattern="row"] .sugar-steps__intro) {
+    max-width: 40rem;
+    margin-inline: auto;
+    text-align: center;
+}
+
+:where(.sugar-steps__list) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-steps__list)::before {
+    content: "";
+    position: absolute;
+    top: 1.25rem;
+    bottom: 1.25rem;
+    left: 1.25rem;
+    width: 1px;
+    background: var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-steps__item) {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    min-width: 0;
+}
+
+:where(.sugar-steps__number) {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-steps__text) {
+    min-width: 0;
+    padding-top: 0.375rem;
+}
+
+:where(.sugar-steps__title) {
+    margin: 0 0 0.25rem;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1rem;
+    font-weight: var(--sugar-heading-weight, 600);
+}
+
+:where(.sugar-steps__body) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.8;
+    white-space: pre-line;
+}
+
+@media (min-width: 768px) {
+    /* 横に番号: 手順を 1 段に並べ、丸の間を横の線でつなぐ（線は各手順の丸の中心から次の手順の丸の中心まで） */
+    :where(.sugar-steps[data-pattern="row"] .sugar-steps__list) {
+        display: grid;
+        grid-auto-columns: minmax(0, 1fr);
+        grid-auto-flow: column;
+        gap: 1.5rem;
+    }
+
+    :where(.sugar-steps[data-pattern="row"] .sugar-steps__list)::before {
+        content: none;
+    }
+
+    :where(.sugar-steps[data-pattern="row"] .sugar-steps__item) {
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        text-align: center;
+    }
+
+    :where(.sugar-steps[data-pattern="row"] .sugar-steps__item:not(:last-child))::after {
+        content: "";
+        position: absolute;
+        top: 1.25rem;
+        left: 50%;
+        width: calc(100% + 1.5rem);
+        height: 1px;
+        background: var(--color-line, #e4e4e7);
+    }
+
+    :where(.sugar-steps[data-pattern="row"] .sugar-steps__text) {
+        padding-top: 0;
+    }
+
+    /* 縦の線: 左に見出しと説明、右に手順 */
+    :where(.sugar-steps[data-pattern="line"]:has(.sugar-steps__intro)) {
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+        gap: 3rem;
+        align-items: start;
+    }
+
+    :where(.sugar-steps[data-pattern="line"] .sugar-steps__intro) {
+        margin-bottom: 0;
+    }
+}
+
+/* 比べる表（表: 文の幅で中央に。写真とサイズ表: 広い画面では写真が左）。幅が足りなければ表の箱の中だけが横に動く */
+:where(.sugar-table) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-table[data-pattern="photo"]:has(.sugar-table__media)) {
+        grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+        gap: 2.5rem;
+    }
+}
+
+:where(.sugar-table__media, .sugar-table__body) {
+    min-width: 0;
+}
+
+:where(.sugar-table[data-pattern="table"] .sugar-table__body) {
+    width: 100%;
+    max-width: 56rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-table__media img, .sugar-table__media .sugar-section__placeholder) {
+    width: 100%;
+    max-height: none;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+}
+
+:where(.sugar-table__scroll) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-table__scroll:focus-visible) {
+    outline: 2px solid var(--color-accent, #18181b);
+    outline-offset: 2px;
+}
+
+:where(.sugar-table__table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-table__table :is(th, td)) {
+    min-width: 4.5rem;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: normal;
+}
+
+:where(.sugar-table__table tbody tr:last-child :is(th, td)) {
+    border-bottom: 0;
+}
+
+:where(.sugar-table__table thead th) {
+    background: var(--color-band, #f6f6f7);
+    font-weight: 600;
+}
+
+:where(.sugar-table__table tbody th) {
+    font-weight: 600;
+}
+
+:where(.sugar-table__note) {
+    margin: 0.75rem 0 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    white-space: pre-line;
+}
+
+/* 値段の表。カード: 狭い画面では縦に積み、広い画面ではプランの数だけ横に（4 つは中くらいの幅で 2 × 2）。
+   おすすめを大きく: おすすめのカードを濃い地（--color-accent）で一回り大きく。表: プランを列にし、幅が足りなければ表の箱の中だけが横に動く */
+:where(.sugar-pricing__intro) {
+    max-width: 40rem;
+    margin: 0 auto 1.5rem;
+    text-align: center;
+}
+
+:where(.sugar-pricing__intro .sugar-section__heading--center) {
+    margin-bottom: 0.75rem;
+}
+
+:where(.sugar-pricing__list) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-pricing[data-plans="1"] .sugar-pricing__list) {
+    max-width: 24rem;
+    margin-inline: auto;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-pricing:is([data-plans="2"], [data-plans="4"]) .sugar-pricing__list) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    :where(.sugar-pricing[data-plans="2"] .sugar-pricing__list) {
+        max-width: 48rem;
+        margin-inline: auto;
+    }
+
+    :where(.sugar-pricing[data-plans="3"] .sugar-pricing__list) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    :where(.sugar-pricing[data-plans="4"] .sugar-pricing__list) {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+:where(.sugar-pricing__plan) {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 1.5rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-canvas, #ffffff);
+}
+
+:where(.sugar-pricing__plan[data-featured]) {
+    border: 2px solid var(--color-accent, #18181b);
+}
+
+:where(.sugar-pricing__badge) {
+    display: inline-block;
+    align-self: flex-start;
+    padding: 0.125rem 0.75rem;
+    border-radius: 999px;
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.6;
+}
+
+:where(.sugar-pricing__name) {
+    margin: 0;
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.5;
+}
+
+:where(.sugar-pricing__price-line) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    margin: 0;
+}
+
+:where(.sugar-pricing__price) {
+    font-family: var(--sugar-heading-font, inherit);
+    font-size: 1.75rem;
+    font-weight: var(--sugar-heading-weight, 600);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+}
+
+:where(.sugar-pricing__price-note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+}
+
+:where(.sugar-pricing__description) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.8;
+    white-space: pre-line;
+}
+
+/* 含むもの: 行の頭にテーマの色の印（線で描いたチェック） */
+:where(.sugar-pricing__includes) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    list-style: none;
+}
+
+:where(.sugar-pricing__includes li) {
+    position: relative;
+    padding-left: 1.5rem;
+}
+
+:where(.sugar-pricing__includes li)::before {
+    content: "";
+    position: absolute;
+    top: 0.3em;
+    left: 0.3rem;
+    width: 0.35rem;
+    height: 0.7rem;
+    border: solid var(--color-accent, #18181b);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+:where(.sugar-pricing__button) {
+    display: inline-block;
+    margin-top: auto;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--sugar-button-radius, 999px);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+}
+
+:where(.sugar-pricing__button:hover) {
+    background: var(--color-accent-hover, var(--color-accent, #3f3f46));
+}
+
+:where(.sugar-pricing__note) {
+    margin: 1rem 0 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    text-align: center;
+    white-space: pre-line;
+}
+
+/* おすすめを大きく: おすすめのカードを濃い地で。広い画面ではほかのカードより上下に張り出す */
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__list) {
+    align-items: center;
+}
+
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured]) {
+    border-color: var(--color-accent, #18181b);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured] :is(.sugar-pricing__price-note, .sugar-pricing__description)) {
+    color: inherit;
+    opacity: 0.85;
+}
+
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured] .sugar-pricing__badge) {
+    background: var(--color-on-accent, #ffffff);
+    color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured] .sugar-pricing__includes li)::before {
+    border-color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured] .sugar-pricing__button) {
+    background: var(--color-on-accent, #ffffff);
+    color: var(--color-ink, #18181b);
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured]) {
+        padding-block: 2.25rem;
+    }
+
+    :where(.sugar-pricing[data-pattern="featured"] .sugar-pricing__plan[data-featured] .sugar-pricing__price) {
+        font-size: 2.25rem;
+    }
+}
+
+/* 表で比べる */
+:where(.sugar-pricing__scroll) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-pricing__scroll:focus-visible) {
+    outline: 2px solid var(--color-accent, #18181b);
+    outline-offset: 2px;
+}
+
+:where(.sugar-pricing__table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+:where(.sugar-pricing__table :is(th, td)) {
+    min-width: 8rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: normal;
+}
+
+:where(.sugar-pricing__table tbody tr:last-child :is(th, td)) {
+    border-bottom: 0;
+}
+
+:where(.sugar-pricing__table th) {
+    font-weight: 600;
+}
+
+:where(.sugar-pricing__table :is(tbody th, tr > td:first-child)) {
+    width: 1%;
+    min-width: 0;
+    white-space: nowrap;
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-pricing__table thead th) {
+    vertical-align: bottom;
+}
+
+:where(.sugar-pricing__table thead th .sugar-pricing__badge) {
+    margin-bottom: 0.375rem;
+}
+
+:where(.sugar-pricing__table thead th .sugar-pricing__name) {
+    display: block;
+}
+
+:where(.sugar-pricing__table [data-featured]) {
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-pricing__table .sugar-pricing__price) {
+    display: block;
+    font-size: 1.375rem;
+}
+
+:where(.sugar-pricing__table .sugar-pricing__button) {
+    padding: 0.5rem 1rem;
+}
+
+/* 余白・区切り（区画の上下の余白は持たず、大きさで高さを決める） */
+:where(.sugar-spacer) {
+    padding-block: 0;
+}
+
+:where(.sugar-spacer[data-pattern="space"][data-size="s"]) {
+    height: 1.5rem;
+}
+
+:where(.sugar-spacer[data-pattern="space"][data-size="m"]) {
+    height: 3rem;
+}
+
+:where(.sugar-spacer[data-pattern="space"][data-size="l"]) {
+    height: 6rem;
+}
+
+:where(.sugar-spacer[data-pattern="line"][data-size="s"]) {
+    padding-block: 0.5rem;
+}
+
+:where(.sugar-spacer[data-pattern="line"][data-size="m"]) {
+    padding-block: 1.5rem;
+}
+
+:where(.sugar-spacer[data-pattern="line"][data-size="l"]) {
+    padding-block: 3rem;
+}
+
+:where(.sugar-spacer__line) {
+    height: 0;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+/* 編集の画面のプレビューでは、余白に点線の枠と「余白」の文字（押して選べるように。ショップには出ない） */
+:where(.sugar-spacer--preview[data-pattern="space"]) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-spacer__label) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.75rem;
+}
+
+/*
+ * 横に流れる並び（お客さんの声・ギャラリーの scroll）。自分の箱の中だけが横に動く。位置の基準を箱に持たせ、中の要素でページを広げない。
+ * 規則はどれも強さ 0（:where）なので、上の並びの既定（display: grid）より後ろに置く（前に置くと既定に負けて格子になる）
+ */
+:where(.sugar-voices[data-pattern="scroll"] .sugar-voices__list, .sugar-gallery[data-pattern="scroll"] .sugar-gallery__list) {
+    position: relative;
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    padding-bottom: 0.5rem;
+}
+
+:where(.sugar-voices[data-pattern="scroll"] .sugar-voices__item, .sugar-gallery[data-pattern="scroll"] .sugar-gallery__item) {
+    flex: 0 0 min(80%, 20rem);
+    scroll-snap-align: start;
+}
+
+/*
+ * App の区画（動画・地図など。ADR 0040）の並べ方と、核の部品 <x-storefront.embed> の見た目。App は CSS を持ち込まない（App の Blade はこの名前を使う）。
+ * .sugar-app-section の data-layout: wide（横いっぱい）・narrow（文の幅）・split（埋め込みと文を左右に。狭い画面では縦に積む）
+ */
+:where(.sugar-app-section[data-layout="narrow"]) {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-app-section[data-layout="split"]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-app-section[data-layout="split"]) {
+        grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+        gap: 2.5rem;
+    }
+}
+
+:where(.sugar-app-section__caption) {
+    margin-top: 0.5rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+}
+
+/* 埋め込みの箱: 縦横の比は data-ratio。枠も編集の画面の無地の箱も、この箱いっぱいに置く */
+:where(.sugar-embed) {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-embed[data-ratio="standard"]) {
+    aspect-ratio: 4 / 3;
+}
+
+:where(.sugar-embed[data-ratio="square"]) {
+    aspect-ratio: 1 / 1;
+}
+
+:where(.sugar-embed[data-ratio="panorama"]) {
+    aspect-ratio: 21 / 9;
+}
+
+:where(.sugar-embed[data-ratio="tall"]) {
+    aspect-ratio: 9 / 16;
+    max-width: 22rem;
+    margin-inline: auto;
+}
+
+/* 狭い画面では横長すぎる比を 16:9 に（地図や横長の動画が細くなりすぎない） */
+@media (max-width: 767px) {
+    :where(.sugar-embed[data-ratio="panorama"]) {
+        aspect-ratio: 16 / 9;
+    }
+}
+
+:where(.sugar-embed__frame, .sugar-embed__cover) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+:where(.sugar-embed__poster) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+:where(.sugar-embed__panel) {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    text-align: center;
+}
+
+/* 写真の上では、文字が読めるように薄い影を敷く */
+:where(.sugar-embed__poster + .sugar-embed__panel) {
+    background: linear-gradient(to top, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.1));
+    color: #ffffff;
+}
+
+:where(.sugar-embed__note) {
+    margin: 0;
+    max-width: 32rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    line-height: 1.7;
+}
+
+/* 枠の下の「別のタブで開く」 */
+:where(.sugar-embed__links) {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    text-align: right;
+}
+
+:where(.sugar-embed__link) {
+    color: var(--color-ink-soft, #52525b);
+    text-decoration: underline;
+}
+
+/*
+ * カスタム区画: 自由な HTML（basic_html）と見たまま書ける文（basic_richtext）。中身は核が整えた HTML（SectionHtml）で、
+ * 残るのは決まったタグと class だけなので、見た目はここで付ける（テーマの preflight で消えた見出し・リスト・表の形を戻す）。
+ * パターンは narrow（文の幅）・wide（横いっぱい）。どの要素も箱の幅を越えない（表と pre は箱の中で横に動く）
+ */
+:where(.sugar-custom[data-pattern="narrow"]) {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+:where(.sugar-html) {
+    color: var(--color-ink, inherit);
+    line-height: 1.9;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-html > :first-child) {
+    margin-top: 0;
+}
+
+:where(.sugar-html > :last-child) {
+    margin-bottom: 0;
+}
+
+:where(.sugar-html :is(h2, h3, h4, h5, h6)) {
+    margin: 1.75em 0 0.6em;
+    font-family: var(--sugar-heading-font, inherit);
+    font-weight: var(--sugar-heading-weight, 600);
+    line-height: 1.5;
+}
+
+:where(.sugar-html h2) {
+    font-size: 1.375rem;
+}
+
+:where(.sugar-html h3) {
+    font-size: 1.125rem;
+}
+
+:where(.sugar-html :is(h4, h5, h6)) {
+    font-size: 1rem;
+}
+
+:where(.sugar-html :is(p, ul, ol, dl, blockquote, figure, pre, table, details)) {
+    margin: 0 0 1em;
+}
+
+:where(.sugar-html :is(ul, ol)) {
+    padding-left: 1.5em;
+}
+
+:where(.sugar-html ul) {
+    list-style: disc;
+}
+
+:where(.sugar-html ol) {
+    list-style: decimal;
+}
+
+:where(.sugar-html li + li) {
+    margin-top: 0.25em;
+}
+
+:where(.sugar-html dt) {
+    font-weight: 600;
+}
+
+:where(.sugar-html dd) {
+    margin: 0 0 0.5em 1em;
+}
+
+:where(.sugar-html :is(strong, b)) {
+    font-weight: 700;
+}
+
+:where(.sugar-html :is(em, i, cite)) {
+    font-style: italic;
+}
+
+:where(.sugar-html a) {
+    color: var(--color-accent, inherit);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+:where(.sugar-html mark) {
+    padding-inline: 0.15em;
+    background: var(--color-band, #f6f6f7);
+    color: inherit;
+}
+
+:where(.sugar-html blockquote) {
+    padding-left: 1em;
+    border-left: 3px solid var(--color-line, #e4e4e7);
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-html hr) {
+    margin: 2em 0;
+    border: 0;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-html img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-html figcaption) {
+    margin-top: 0.5em;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+}
+
+:where(.sugar-html :is(code, pre)) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.875em;
+}
+
+:where(.sugar-html pre) {
+    max-width: 100%;
+    padding: 1em;
+    overflow-x: auto;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+    white-space: pre;
+    overflow-wrap: normal;
+}
+
+/* 表: 幅が足りなければ表の箱の中で横に動く（ページは広げない） */
+:where(.sugar-html table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+}
+
+:where(.sugar-html :is(th, td)) {
+    padding: 0.5em 0.75em;
+    border: 1px solid var(--color-line, #e4e4e7);
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: normal;
+}
+
+:where(.sugar-html th) {
+    background: var(--color-band, #f6f6f7);
+    font-weight: 600;
+}
+
+:where(.sugar-html caption) {
+    margin-bottom: 0.5em;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+:where(.sugar-html summary) {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+/* 決まった class（SectionHtml::CLASSES。docs/design/theme-api.md の一覧） */
+:where(.sugar-html .sugar-cols-2, .sugar-html .sugar-cols-3) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 1em;
+}
+
+@media (min-width: 768px) {
+    :where(.sugar-html .sugar-cols-2) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    :where(.sugar-html .sugar-cols-3) {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+:where(.sugar-html :is(.sugar-cols-2, .sugar-cols-3) > *) {
+    min-width: 0;
+}
+
+:where(.sugar-html .sugar-align-center) {
+    text-align: center;
+}
+
+:where(.sugar-html .sugar-align-right) {
+    text-align: right;
+}
+
+:where(.sugar-html img.sugar-align-center) {
+    margin-inline: auto;
+}
+
+:where(.sugar-html img.sugar-align-right) {
+    margin-left: auto;
+}
+
+:where(.sugar-html .sugar-btn, .sugar-html .sugar-btn-outline) {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--sugar-button-radius, 999px);
+    font-weight: 600;
+    line-height: 1.4;
+    text-decoration: none;
+}
+
+:where(.sugar-html .sugar-btn) {
+    border: 1px solid var(--color-accent, #18181b);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-html .sugar-btn:hover) {
+    background: var(--color-accent-hover, var(--color-accent, #3f3f46));
+}
+
+:where(.sugar-html .sugar-btn-outline) {
+    border: 1px solid currentColor;
+    background: transparent;
+    color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-html .sugar-note) {
+    padding: 1em 1.25em;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-html .sugar-lead) {
+    font-size: 1.125rem;
+    line-height: 1.8;
+}
+
+:where(.sugar-html .sugar-small) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+}
+
+:where(.sugar-html .sugar-space-s) {
+    margin-block: 0.5rem;
+}
+
+:where(.sugar-html .sugar-space-l) {
+    margin-block: 3rem;
+}
+
+:where(.sugar-html .sugar-wide) {
+    width: 100%;
+}

@@ -1,0 +1,1946 @@
+/*
+ * 核が描くショップの部品の見た目（ADR 0034）: 同意の帯と、外部送信に関する公表・Cookie の設定の画面、商品のプレビューの帯。
+ * 色と文字はテーマのトークン（CSS の変数 --color-*）を使い、無ければ白黒に倒す。テーマの CSS が後から上書きできるよう、
+ * :where() で強さを 0 にしておく（テーマは data-sugar-consent などの印や class で好きに変えられる）
+ */
+
+:where(.sugar-consent) {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 50;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+    background: var(--color-canvas, #ffffff);
+    color: var(--color-ink, #18181b);
+}
+
+:where(.sugar-consent[hidden]) {
+    display: none;
+}
+
+:where(.sugar-consent__inner) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.25rem 1rem;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+:where(.sugar-consent__title) {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+:where(.sugar-consent__actions) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* 同意する・しないは同じ強さで見せる（片方だけを目立たせない） */
+:where(.sugar-consent__button) {
+    min-height: 44px;
+    padding: 0 1.25rem;
+    border: 1px solid var(--color-accent, #18181b);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+:where(.sugar-consent__button:hover) {
+    background: var(--color-accent-hover, var(--color-accent, #3f3f46));
+}
+
+:where(.sugar-consent__link, .sugar-page__link, .sugar-page a) {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
+:where(.sugar-page) {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 48rem;
+}
+
+:where(.sugar-page__title) {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+:where(.sugar-page__lead, .sugar-page__note) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-page__empty) {
+    padding: 2.5rem 1.5rem;
+    border-radius: 1rem;
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-page__list) {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+:where(.sugar-page__item) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-page__heading) {
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+:where(.sugar-page__table) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+:where(.sugar-page__table > div) {
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr);
+    gap: 1rem;
+}
+
+:where(.sugar-page__table dt) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 13px;
+}
+
+:where(.sugar-page__table dd) {
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-page__choice) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+:where(.sugar-page__choice input) {
+    margin-top: 0.4rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-page__choice span) {
+    display: flex;
+    flex-direction: column;
+}
+
+/* 準備中のショップの「準備中です」とパスワードの欄（核の既定の画面。テーマが password の画面を持てばそちら） */
+:where(.sugar-password) {
+    display: flex;
+    min-height: 100dvh;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    background: var(--color-canvas, #ffffff);
+    color: var(--color-ink, #18181b);
+}
+
+:where(.sugar-password__inner) {
+    display: flex;
+    width: 100%;
+    max-width: 26rem;
+    flex-direction: column;
+    gap: 1.25rem;
+    text-align: center;
+}
+
+:where(.sugar-password__shop) {
+    font-size: 1.25rem;
+    letter-spacing: 0.12em;
+}
+
+:where(.sugar-password__error) {
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-sold, #b91c1c);
+    font-size: 13px;
+}
+
+:where(.sugar-password__form) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: left;
+}
+
+:where(.sugar-password__label) {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+:where(.sugar-password__input) {
+    height: 44px;
+    padding: 0 1rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+}
+
+/* 会員のログインとマイページ（ADR 0044。核の画面。テーマが同じ class で上書きできる）。
+ * 2026-11-01 に運営が選んだ形 A: ログイン・コード・本人の確認・退会は、画面の真ん中に線で囲んだカードを 1 枚。
+ * マイページ・届け先・パスキーは同じ幅の列に、節ごとのカードを重ねる。角と線は欄とボタンでそろえる */
+/* 会員の画面の hidden は、テーマの見た目に関係なく必ず隠す（パスキーを使えないブラウザでパスキーのフォームを出さない） */
+.sugar-account [hidden] {
+    display: none !important;
+}
+
+:where(.sugar-account) {
+    width: 100%;
+    max-width: 40rem;
+    margin-inline: auto;
+    padding-block: 1rem 3rem;
+}
+
+@media (min-width: 640px) {
+    :where(.sugar-account) {
+        padding-block: 2.5rem 4rem;
+    }
+
+    :where(.sugar-account__card) {
+        padding: 2rem 1.75rem;
+    }
+}
+
+:where(.sugar-account--card) {
+    max-width: 28rem;
+    gap: 1.25rem;
+}
+
+:where(.sugar-account__card) {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.75rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 1rem;
+    background: var(--color-canvas, #ffffff);
+}
+
+:where(.sugar-account__head) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: center;
+}
+
+:where(.sugar-account__head .sugar-page__title) {
+    font-size: 1.5rem;
+}
+
+:where(.sugar-account__head .sugar-page__lead) {
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+:where(.sugar-account__foot) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 13px;
+    line-height: 1.8;
+    text-align: center;
+}
+
+:where(.sugar-account__back) {
+    font-size: 13px;
+}
+
+:where(.sugar-account__form) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+:where(.sugar-account__label) {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+:where(.sugar-account__input) {
+    height: 48px;
+    padding: 0 1rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+    font-size: 16px;
+}
+
+:where(.sugar-account__input:focus-visible) {
+    outline: 2px solid var(--color-accent, #18181b);
+    outline-offset: 1px;
+}
+
+:where(.sugar-account__input--code) {
+    font-size: 1.5rem;
+    letter-spacing: 0.5em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 主のボタン（塗り）と控えめなボタン（線だけ）。角は欄とそろえる */
+:where(.sugar-account__primary, .sugar-account__secondary) {
+    display: inline-flex;
+    min-height: 48px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 0.75rem;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+:where(.sugar-account__primary) {
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-account__primary:hover) {
+    background: var(--color-accent-hover, var(--color-accent, #3f3f46));
+}
+
+:where(.sugar-account__secondary) {
+    border-color: var(--color-line, #e4e4e7);
+    background: transparent;
+    color: inherit;
+}
+
+:where(.sugar-account__secondary:hover) {
+    border-color: var(--color-ink, #18181b);
+}
+
+:where(.sugar-account__primary:disabled, .sugar-account__secondary:disabled) {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+/* 「または」の区切り */
+:where(.sugar-account__or) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-account__or)::before,
+:where(.sugar-account__or)::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-account__error) {
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-sold, #b91c1c);
+    font-size: 13px;
+}
+
+:where(.sugar-account__notice) {
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+    font-size: 13px;
+}
+
+:where(.sugar-account__email) {
+    overflow-wrap: anywhere;
+}
+
+/* マイページ: 節ごとのカード */
+:where(.sugar-account__section) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 1rem;
+}
+
+:where(.sugar-account__section-head) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+}
+
+:where(.sugar-account__links) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+:where(.sugar-account__links a) {
+    display: inline-flex;
+    min-height: 40px;
+    align-items: center;
+    padding: 0 1rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 999px;
+    color: inherit;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+:where(.sugar-account__links a:hover) {
+    border-color: var(--color-ink, #18181b);
+}
+
+:where(.sugar-account__list) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+:where(.sugar-account__order) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-account__order:first-child) {
+    padding-top: 0;
+    border-top: 0;
+}
+
+:where(.sugar-account__order-head) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 1rem;
+    font-size: 13px;
+}
+
+:where(.sugar-account__status) {
+    margin-left: auto;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    background: var(--color-band, #f6f6f7);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+:where(.sugar-account__lines) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 14px;
+}
+
+:where(.sugar-account__lines li) {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+:where(.sugar-account__total) {
+    text-align: right;
+    font-size: 14px;
+}
+
+:where(.sugar-account__field) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+:where(.sugar-account__field-error) {
+    color: var(--color-sold, #b91c1c);
+    font-size: 13px;
+}
+
+:where(.sugar-account__actions) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+:where(.sugar-account__actions .sugar-account__secondary) {
+    min-height: 40px;
+    font-size: 13px;
+}
+
+:where(.sugar-account__logout) {
+    align-self: center;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 13px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+}
+
+/* 注文の入力の「登録した届け先から選ぶ」（ADR 0044。核の部品をテーマが置く） */
+:where(.sugar-saved-addresses) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+}
+
+:where(.sugar-saved-addresses__title) {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+:where(.sugar-saved-addresses__list) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+:where(.sugar-saved-addresses__item) {
+    display: block;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.5rem;
+    color: inherit;
+    font-size: 14px;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-saved-addresses__item[aria-current="true"]) {
+    border-color: var(--color-accent, #18181b);
+    font-weight: 600;
+}
+
+:where(.sugar-saved-addresses__manage) {
+    font-size: 13px;
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
+/* App の買い方（ADR 0050。商品の画面の「カートに入れる」の近く。テーマが同じ class で上書きできる） */
+:where(.sugar-purchase-options) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+:where(.sugar-purchase-options__button) {
+    display: flex;
+    min-height: 48px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 999px;
+    color: var(--color-accent, #18181b);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    text-align: center;
+}
+
+:where(.sugar-purchase-options__note) {
+    font-size: 12px;
+    font-weight: 400;
+}
+
+/*
+ * App の「押す・戻す」のボタン（ADR 0071。App「お気に入り」のハート）。商品の画面では買い方の並びの中に文字つきで、一覧の札では写真の右上に小さく重ねる。
+ * 押してある形は aria-pressed="true"（ハートを塗る）。色はテーマのトークン
+ */
+:where(.sugar-toggle) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+}
+
+:where(.sugar-toggle__button) {
+    display: inline-flex;
+    min-height: 48px;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 999px;
+    background: var(--color-canvas, #ffffff);
+    color: var(--color-ink, #18181b);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+:where(.sugar-toggle__icon) {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+}
+
+:where(.sugar-toggle__button[aria-pressed='true'] .sugar-toggle__icon) {
+    fill: var(--color-accent, #e11d48);
+    stroke: var(--color-accent, #e11d48);
+}
+
+:where(.sugar-toggle__button[aria-busy='true']) {
+    opacity: 0.6;
+}
+
+/* 読み上げだけに残す文字（札の上の小さな形） */
+:where(.sugar-toggle__label--hidden) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* 一覧の札の外枠（テーマの札のリンクと、核の札のボタンを重ねる） */
+:where(.sugar-card) {
+    position: relative;
+    min-width: 0;
+}
+
+:where(.sugar-card-options) {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+    display: flex;
+    gap: 0.25rem;
+}
+
+:where(.sugar-toggle--compact .sugar-toggle__button) {
+    width: 40px;
+    min-height: 40px;
+    height: 40px;
+    padding: 0;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--color-canvas, #ffffff) 85%, transparent);
+}
+
+/* App の開いて読む並び（よくある質問など。商品の画面の説明の下）。<details> で開閉する。テーマが同じ印で上書きできる */
+:where([data-product-panel]) {
+    border-top: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where([data-product-panel-item]) {
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where([data-product-panel-summary]) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 44px;
+    padding: 0.75rem 0;
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-ink, #18181b);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+:where([data-product-panel-summary])::-webkit-details-marker {
+    display: none;
+}
+
+:where([data-product-panel-summary])::after {
+    content: "+";
+    flex: none;
+    font-weight: 400;
+}
+
+:where([data-product-panel-item][open] > [data-product-panel-summary])::after {
+    content: "−";
+}
+
+:where([data-product-panel-body]) {
+    padding: 0 0 1rem;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+/* レビューの星・平均・添え書き・店からの返信（App「商品レビュー」。2026-11-04） */
+:where([data-product-panel-rating]) {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+    color: var(--color-ink, #18181b);
+}
+
+:where([data-product-panel-stars]) {
+    flex: none;
+    color: var(--color-accent, #18181b);
+    letter-spacing: 0.05em;
+}
+
+:where([data-product-panel-average]) {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+:where([data-product-panel-count], [data-product-panel-meta]) {
+    font-size: 12px;
+}
+
+:where([data-product-panel-title]) {
+    flex: 1;
+}
+
+:where([data-product-panel-meta]) {
+    margin: 0 0 0.5rem;
+    overflow-wrap: anywhere;
+}
+
+:where([data-product-panel-reply]) {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-left: 2px solid var(--color-line, #e4e4e7);
+}
+
+:where([data-product-panel-reply-label]) {
+    margin: 0 0 0.25rem;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+:where([data-product-panel-reply-body]) {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+/* お知らせ・ブログ（App。ADR 0072）: /news の一覧・記事と、区画「新着のお知らせ」。テーマが同じ class か、news・news-post の画面で上書きできる */
+:where(.sugar-news__filters) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+:where(.sugar-news__filter) {
+    padding: 0.25rem 0.875rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 999px;
+    font-size: 0.875rem;
+    text-decoration: none;
+}
+
+:where(.sugar-news__filter[aria-current="page"]) {
+    border-color: var(--color-accent, #18181b);
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-news__list) {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-news__item) {
+    display: flex;
+    gap: 1rem;
+    padding-block: 1rem;
+    border-bottom: 1px solid var(--color-line, #e4e4e7);
+}
+
+:where(.sugar-news__photo) {
+    flex: none;
+    width: 8rem;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-news__text) {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+:where(.sugar-news__meta) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.8125rem;
+}
+
+:where(.sugar-news__title) {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-news__title a) {
+    color: inherit;
+    text-decoration: none;
+}
+
+:where(.sugar-news__title a:hover) {
+    text-decoration: underline;
+}
+
+:where(.sugar-news__excerpt) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-news__pager) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+}
+
+:where(.sugar-news__list[data-layout="cards"]) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 1.5rem;
+}
+
+:where(.sugar-news__list[data-layout="cards"] .sugar-news__item) {
+    flex-direction: column;
+    border-bottom: 0;
+    padding-block: 0;
+}
+
+:where(.sugar-news__list[data-layout="cards"] .sugar-news__photo) {
+    width: 100%;
+}
+
+:where(.sugar-news__more) {
+    margin: 1rem 0 0;
+}
+
+:where(.sugar-news-post__photo) {
+    width: 100%;
+    height: auto;
+    border-radius: var(--sugar-radius, 0.75rem);
+}
+
+:where(.sugar-news-post__body) {
+    overflow-wrap: anywhere;
+}
+
+/* 有料の記事の「ここから先は」の案内。有料の本文はここに無い（サーバーが組み立てる前に落としている） */
+:where(.sugar-paywall) {
+    margin-block: 1.5rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: var(--sugar-radius, 0.75rem);
+    background: var(--color-band, #f6f6f7);
+}
+
+:where(.sugar-paywall p) {
+    margin: 0;
+}
+
+:where(.sugar-paywall__note) {
+    margin-block-start: 0.5rem;
+    font-size: 14px;
+}
+
+/* プライバシーポリシーの核の既定の画面（ADR 0094）。段落・見出し・箇条書きの見た目はテーマの [data-blocks] の規則 */
+:where(.sugar-privacy__body) {
+    overflow-wrap: anywhere;
+}
+
+/* 支払いの様子（ご注文の確認。コンビニ払いの入金待ちと払われた手段。ADR 0058）。テーマが同じ印で上書きできる */
+:where([data-payment-status]) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    font-size: 14px;
+}
+
+:where([data-payment-status='awaiting']) {
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+}
+
+:where([data-payment-status] p) {
+    margin: 0;
+}
+
+:where([data-payment-status] a) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0.5rem 1.25rem;
+    border-radius: 999px;
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+:where([data-payment-status] a:hover) {
+    background: var(--color-accent-hover, #27272a);
+}
+
+/* App のご注文のリンク（レビューを書く・領収書など。ご注文の確認とマイページの注文の履歴。2026-11-04）。テーマが同じ印で上書きできる */
+:where([data-order-links]) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+:where([data-order-links] a) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 999px;
+    color: var(--color-accent, #18181b);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+:where([data-order-links] a:hover) {
+    background: var(--color-band, #f6f6f7);
+}
+
+/* 商品のプレビューの帯。画面の上に留め、その分だけ本文を下げる。カートに入れる所は押せない見た目に（押せなくするのは cart.js） */
+:where(.sugar-preview) {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 60;
+    padding: 0.625rem 1rem;
+    background: var(--color-ink, #18181b);
+    color: var(--color-canvas, #ffffff);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-align: center;
+}
+
+:where(body:has(> .sugar-preview)) {
+    padding-top: 2.5rem;
+}
+
+:where(body:has(> .sugar-preview) form[data-cart-form]) {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+/* テーマの下書きのプレビュー（ADR 0039 区切り 2）。管理画面の編集の画面の枠の中だけ（editor.js が <html data-sugar-editing> を付ける）。
+   区画は指を置くと細い輪郭、選んだ区画は太い輪郭。輪郭は外側の線（outline）なので、区画の大きさも並びも変えない。カートに入れる所は押せない見た目に */
+:where([data-sugar-editing] [data-section]) {
+    cursor: pointer;
+}
+
+:where([data-sugar-editing] [data-section]:hover) {
+    outline: 2px dashed var(--color-accent, #4f46e5);
+    outline-offset: -2px;
+}
+
+:where([data-sugar-editing] [data-section][data-sugar-selected]) {
+    outline: 3px solid var(--color-accent, #4f46e5);
+    outline-offset: -3px;
+}
+
+:where([data-sugar-editing] form[data-cart-form]) {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+/* 区画の試し見。編集の画面の「＋ 区画を足す」で絵に指を置く・焦点を当てる間だけ、editor.js が仮に差し込む区画（data-sugar-trial-node）。
+   点線の輪郭で「まだ足していない」ことを見せ、ふわっと出す（0.2 秒。透明さだけ。動きを減らす設定では出すだけ）。押しても何もしない */
+:where([data-sugar-editing] [data-sugar-trial-node]) {
+    outline: 2px dashed var(--color-accent, #4f46e5);
+    outline-offset: -2px;
+    cursor: default;
+    animation: sugar-trial-in 0.2s ease-out;
+}
+
+/* 核の区画（.sugar-section）は左右の余白をテーマの外枠に任せ、上下の余白もテーマが 0 にできる（角砂糖・kinari は --sugar-section-space: 0）ので、
+   中身が区画の端まで来る。内側に描く点線の輪郭が文字にかぶらないよう、試し見の間だけ四方に 0.75rem の透明な枠を足して中身を内側へ寄せる。
+   余白（padding）でなく枠にするのは、テーマが決めた余白を上書きせずに外側へ足すため（max() で比べる形は、テーマの値が単位の無い 0 だと宣言ごと無効になる）。
+   テーマの区画は自分の余白を持つので触らない（ここは層の外なので、テーマの余白より強い）。余白そのものが中身の「空き」は除く */
+:where([data-sugar-editing] .sugar-section[data-sugar-trial-node]:not(.sugar-spacer)) {
+    border: 0.75rem solid transparent;
+}
+
+:where([data-sugar-editing] .sugar-trial-empty) {
+    margin: 1.5rem auto;
+    max-width: 40rem;
+    padding: 1.5rem;
+    border-radius: 0.5rem;
+    border: 1px dashed var(--color-line, #e4e4e7);
+    background: var(--color-band, #f6f6f7);
+    color: var(--color-ink-soft, #52525b);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+@keyframes sugar-trial-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :where([data-sugar-editing] [data-sugar-trial-node]) {
+        animation: none;
+    }
+}
+
+/* クーポンの欄（ADR 0054）。色と角はテーマのトークンに合わせる */
+:where(.sugar-coupon) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-line, #e4e4e7);
+    font-size: 13px;
+}
+
+:where(.sugar-coupon__applied) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+:where(.sugar-coupon__label) {
+    font-weight: 600;
+}
+
+:where(.sugar-coupon__row) {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+}
+
+:where(.sugar-coupon__input) {
+    flex: 1;
+    min-width: 0;
+    height: 2.5rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-transform: uppercase;
+}
+
+:where(.sugar-coupon__apply) {
+    height: 2.5rem;
+    padding: 0 1rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+:where(.sugar-coupon__remove) {
+    color: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+}
+
+:where(.sugar-coupon__notice) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+/* 自動の割引の方が得なので、コードを使っていない（誤りではないので落ち着いた色。ADR 0065） */
+:where(.sugar-coupon__notice--info) {
+    color: var(--color-ink-soft, #71717a);
+}
+
+/* 次に届く自動の割引の一言（ADR 0065）。カートの合計の欄の中 */
+:where(.sugar-discount-hint) {
+    color: var(--color-accent-hover, var(--color-accent, #18181b));
+    font-size: 12px;
+}
+
+/* 1 回のご注文の下限に届いていない時の一言（ADR 0109）。カートの合計の欄の中。注文に進めない理由なので、割引の一言より強い色 */
+:where(.sugar-minimum-notice) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+/* 商品の画面の、使える自動の割引の名前（ADR 0065）。価格の近くに小さな札で並べる */
+:where(.sugar-product-discounts) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+:where(.sugar-product-discounts__item) {
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 999px;
+    color: var(--color-accent, #18181b);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* お届け日時（ADR 0059）。注文の入力の「お届け日」「時間帯」の欄と、確認の画面・ご注文の状況の「お届け日時のご希望」。
+ * 「贈り物として送る」を選ぶと欄を隠す（届く日は受け取る人しだい。サーバーも贈り物では日時を使わない）。テーマの class より強くする（:where にしない） */
+form:has([data-gift-toggle]:checked) [data-delivery] {
+    display: none !important;
+}
+
+:where(.sugar-delivery) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    font-size: 13px;
+}
+
+:where(.sugar-delivery__title) {
+    padding: 0 0.25rem;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+:where(.sugar-delivery__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+:where(.sugar-delivery__field) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+:where(.sugar-delivery__label) {
+    font-weight: 600;
+}
+
+:where(.sugar-delivery__optional) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+:where(.sugar-delivery__input) {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+    font: inherit;
+    font-size: 14px;
+}
+
+:where(.sugar-delivery__input[aria-invalid="true"]) {
+    border-color: var(--color-danger, #b91c1c);
+}
+
+:where(.sugar-delivery__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+:where(.sugar-delivery-summary) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    font-size: 14px;
+}
+
+:where(.sugar-delivery-summary__label) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-delivery-summary__value) {
+    font-weight: 600;
+}
+
+/* 注文の項目（ADR 0066）。注文の入力に店が足した欄と、確認の画面・ご注文の状況・マイページの値。
+ * お届け日時の欄と同じ形（枠の中に欄を縦に並べる）。テーマは同じ class で上書きできる */
+:where(.sugar-order-fields) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+    margin: 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    font-size: 13px;
+}
+
+:where(.sugar-order-fields__title) {
+    padding: 0 0.25rem;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+:where(.sugar-order-fields__field) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+:where(.sugar-order-fields__label) {
+    font-weight: 600;
+}
+
+:where(.sugar-order-fields__check) {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+}
+
+:where(.sugar-order-fields__check input) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-order-fields__required, .sugar-order-fields__optional) {
+    margin-left: 0.25rem;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+:where(.sugar-order-fields__required) {
+    color: var(--color-danger, #b91c1c);
+}
+
+:where(.sugar-order-fields__input) {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+    font: inherit;
+    font-size: 14px;
+}
+
+:where(.sugar-order-fields__textarea) {
+    min-height: 7rem;
+    resize: vertical;
+}
+
+:where(.sugar-order-fields__input[aria-invalid="true"]) {
+    border-color: var(--color-danger, #b91c1c);
+}
+
+:where(.sugar-order-fields__hint) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+:where(.sugar-order-fields__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+:where(.sugar-order-fields-summary) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    font-size: 14px;
+}
+
+:where(.sugar-order-fields-summary__title) {
+    font-weight: 600;
+}
+
+:where(.sugar-order-fields-summary__list) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+}
+
+:where(.sugar-order-fields-summary__row) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+}
+
+:where(.sugar-order-fields-summary__label) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-order-fields-summary__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-order-fields-summary__value) {
+    margin: 0;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+/* 年齢の確かめ（ADR 0077）。注文の入力の欄は注文の項目と同じ形（.sugar-order-fields）を使う。
+ * 贈り物を選んでいない間は、受け取る方の同意の欄を隠す（JavaScript は使わない。隠せないブラウザでも、贈り物でなければ使わない）。
+ * 商品の画面の一言（「20 歳未満の方はお求めいただけません」）。テーマは同じ class で上書きできる */
+form:not(:has([data-gift-toggle]:checked)) [data-age-recipient] {
+    display: none !important;
+}
+
+:where(.sugar-age-notice) {
+    margin: 0;
+    color: var(--color-ink, #18181b);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* 贈り物（ADR 0055）。注文の入力の「贈り物として送る」・確認の画面の差出人とメッセージ・受け取りのリンク。
+ * 選んでいない間は差出人とメッセージの欄を隠し、選ぶとテーマのお届け先の欄（data-ship-to）を隠す（JavaScript は使わない）。
+ * テーマのお届け先の欄は Tailwind の class で display を持つので、隠す規則だけは強さを持たせる（:where にしない） */
+.sugar-gift:not(:has([data-gift-toggle]:checked)) [data-gift-fields],
+form:has([data-gift-toggle]:checked) [data-ship-to],
+[data-gift-share] [hidden] {
+    display: none !important;
+}
+
+:where(.sugar-gift) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    font-size: 13px;
+}
+
+:where(.sugar-gift__title) {
+    padding: 0 0.25rem;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+:where(.sugar-gift__toggle) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+:where(.sugar-gift__toggle input) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-gift__note, .sugar-gift__hint, .sugar-gift-share__note, .sugar-gift-summary__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+:where(.sugar-gift__fields) {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+:where(.sugar-gift__field) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+:where(.sugar-gift__optional) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+:where(.sugar-gift__input, .sugar-gift-share__link) {
+    width: 100%;
+    min-height: 3rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    background: var(--color-canvas, #ffffff);
+    color: inherit;
+    font: inherit;
+    font-size: 14px;
+}
+
+:where(.sugar-gift__textarea) {
+    min-height: 7rem;
+    resize: vertical;
+}
+
+:where(.sugar-gift__input[aria-invalid="true"]) {
+    border-color: var(--color-danger, #b91c1c);
+}
+
+:where(.sugar-gift__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+:where(.sugar-gift-summary) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+:where(.sugar-gift-summary__lead) {
+    font-weight: 600;
+}
+
+:where(.sugar-gift-summary__list) {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: 0.25rem 1rem;
+}
+
+:where(.sugar-gift-summary__list dt) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-gift-summary__message, .sugar-gift-receive__message) {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-gift-share) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 1.25rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.75rem;
+    font-size: 13px;
+}
+
+:where(.sugar-gift-share__title) {
+    font-size: 15px;
+    font-weight: 600;
+}
+
+:where(.sugar-gift-share__label) {
+    font-weight: 600;
+}
+
+:where(.sugar-gift-share__row) {
+    display: flex;
+    gap: 0.5rem;
+}
+
+:where(.sugar-gift-share__copy, .sugar-gift-share__line, .sugar-gift-share__manage) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 3rem;
+    padding: 0 1.25rem;
+    border: 1px solid var(--color-accent, #18181b);
+    border-radius: 0.75rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+:where(.sugar-gift-share__line, .sugar-gift-share__manage) {
+    align-self: flex-start;
+}
+
+:where(.sugar-gift-share__copied:empty) {
+    display: none;
+}
+
+/* 届け先の入力欄の囲み（郵便番号から住所を入れる印のため。並びはフォームのまま） */
+:where(.sugar-address-fields) {
+    display: contents;
+}
+
+:where(.sugar-account__hint:empty) {
+    display: none;
+}
+
+:where(.sugar-account__hint) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+/* 贈り物の受け取りの画面（App の画面。会員の画面のカードの形に、商品の並びとメッセージ） */
+:where(.sugar-gift-receive__items) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+:where(.sugar-gift-receive__item) {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 14px;
+}
+
+:where(.sugar-gift-receive__photo) {
+    width: 4rem;
+    height: 4rem;
+    flex: none;
+    border-radius: 0.5rem;
+    background: var(--color-band, #f6f6f7);
+    object-fit: cover;
+}
+
+:where(.sugar-gift-receive__message) {
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+    font-size: 14px;
+    line-height: 1.9;
+}
+
+:where(.sugar-gift-receive__from) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 13px;
+}
+
+/* お知らせのメールを受け取る（注文の入力の切り替え。いつも選んでいない状態から） */
+:where(.sugar-opt-in) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 13px;
+}
+
+:where(.sugar-opt-in__toggle) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 14px;
+}
+
+:where(.sugar-opt-in__toggle input) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-opt-in__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+/* 税率ごとの内訳（ADR 0063）。合計の下に小さく、右に寄せる */
+:where([data-tax-breakdown]) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    color: var(--color-ink-soft, #71717a);
+    font-size: 12px;
+    text-align: right;
+}
+
+:where([data-tax-breakdown] p) {
+    margin: 0;
+}
+
+/* ポイント（ADR 0068）。使ったポイントの行（確かめの画面の合計の欄の中）・付くポイントの一言・使う欄・注文と商品の画面の一言 */
+/* App の料金の行（ラッピング・のしなど。ADR 0078）も同じ並び */
+:where(.sugar-points-used, .sugar-charges-used) {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+:where(.sugar-points-note, .sugar-order-points, .sugar-product-points) {
+    color: var(--color-accent-hover, var(--color-accent, #18181b));
+    font-size: 12px;
+}
+
+:where(.sugar-points-note[hidden]) {
+    display: none;
+}
+
+:where(.sugar-points-fields) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 14px;
+}
+
+:where(.sugar-points-fields__legend) {
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+}
+
+:where(.sugar-points-fields__balance) {
+    font-size: 13px;
+}
+
+:where(.sugar-points-fields__expiry, .sugar-points-fields__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-points-fields__choice) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+}
+
+:where(.sugar-points-fields__choice input[type='radio']) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-points-fields__amount) {
+    width: 8rem;
+    height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.5rem;
+    background: transparent;
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.sugar-points-fields__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+/* お支払いの方法を選ぶ欄（注文の入力。銀行振込・代金引換を使う店だけ。ADR 0074）。テーマが同じ印で上書きできる */
+:where(.sugar-payment-choice) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 14px;
+}
+
+:where(.sugar-payment-choice__legend) {
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+}
+
+:where(.sugar-payment-choice__option) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+}
+
+:where(.sugar-payment-choice__option[aria-disabled='true']) {
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where(.sugar-payment-choice__option input[type='radio']) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-payment-choice__reason) {
+    flex-basis: 100%;
+    padding-left: 1.5rem;
+    font-size: 12px;
+}
+
+/* 会員だけにした銀行振込・代金引換の添え書き（ゲストに） */
+:where(.sugar-payment-choice__note) {
+    margin: 0;
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-payment-choice__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+/* 銀行振込の振込先・代金引換の案内（受け付けた画面とご注文の状況。ADR 0074）。テーマが同じ印で上書きできる */
+:where([data-direct-payment]) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    background: var(--color-band, #f6f6f7);
+    font-size: 14px;
+}
+
+:where([data-direct-payment] p, [data-direct-payment] dl) {
+    margin: 0;
+}
+
+:where([data-direct-payment] dl > div) {
+    display: flex;
+    gap: 1rem;
+}
+
+:where([data-direct-payment] dt) {
+    min-width: 7rem;
+    color: var(--color-ink-soft, #52525b);
+}
+
+:where([data-direct-payment] dd) {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+:where(.sugar-direct-payment__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+/* App「予約」の月のカレンダー（ADR 0056）。空きのある日だけがリンク。テーマは同じクラスで上書きできる */
+:where(.sugar-booking-calendar) {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 14px;
+    text-align: center;
+}
+
+:where(.sugar-booking-calendar th) {
+    padding: 0.25rem 0;
+    color: var(--color-ink-soft, #52525b);
+    font-weight: 500;
+}
+
+:where(.sugar-booking-calendar td) {
+    padding: 0.125rem;
+}
+
+:where(.sugar-booking-calendar a, .sugar-booking-calendar span) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
+    border-radius: 0.5rem;
+}
+
+:where(.sugar-booking-calendar a) {
+    border: 1px solid var(--color-accent, #18181b);
+    color: var(--color-accent, #18181b);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+:where(.sugar-booking-calendar a[aria-current]) {
+    background: var(--color-accent, #18181b);
+    color: var(--color-on-accent, #ffffff);
+}
+
+:where(.sugar-booking-calendar span) {
+    color: var(--color-ink-soft, #a1a1aa);
+}
+
+/* ギフトカード（ADR 0076）: 注文の入力の欄・確かめの画面のお支払いの行・ご注文の状況の一言 */
+:where(.sugar-gift-card-used) {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+:where(.sugar-gift-card-used--due) {
+    font-weight: 600;
+}
+
+:where(.sugar-gift-card-used--note, .sugar-order-gift-card) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-gift-card-fields) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 14px;
+}
+
+:where(.sugar-gift-card-fields__legend) {
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+}
+
+:where(.sugar-gift-card-fields__current) {
+    font-size: 13px;
+}
+
+:where(.sugar-gift-card-fields__remove) {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+}
+
+:where(.sugar-gift-card-fields__remove input[type='checkbox']) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-accent, #18181b);
+}
+
+:where(.sugar-gift-card-fields__label) {
+    font-size: 13px;
+}
+
+:where(.sugar-gift-card-fields__code) {
+    width: 100%;
+    max-width: 20rem;
+    height: 2.75rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--color-line, #e4e4e7);
+    border-radius: 0.5rem;
+    background: transparent;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+:where(.sugar-gift-card-fields__note) {
+    color: var(--color-ink-soft, #52525b);
+    font-size: 12px;
+}
+
+:where(.sugar-gift-card-fields__error) {
+    color: var(--color-danger, #b91c1c);
+    font-size: 12px;
+}
+
+/* デモの店の帯（ADR 0086）。どの画面でもいちばん上に、本文を押し下げる形で出す（固定しない。小さな画面で本文を隠さない） */
+:where(.sugar-demo) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem 1rem;
+    padding: 0.5rem 1rem;
+    background: var(--color-ink, #18181b);
+    color: var(--color-canvas, #ffffff);
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+}
+
+:where(.sugar-demo__text, .sugar-demo__actions) {
+    margin: 0;
+}
+
+:where(.sugar-demo__actions) {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+:where(.sugar-demo__form) {
+    display: inline;
+}
+
+:where(.sugar-demo__link, .sugar-demo__button) {
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+
+/* 送るはずだったメールの本文（文字のまま。折り返す） */
+:where(.sugar-demo-mail__body) {
+    margin: 0.75rem 0 0;
+    padding: 1rem;
+    background: var(--color-band, #f6f6f7);
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

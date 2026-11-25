@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-tiktok-pixel",
+    "description": "EC-SUGAR の App: TikTok ピクセル（TikTok 広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginTiktokPixel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginTiktokPixel\\TiktokPixelServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "tiktok-pixel",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "pixel_id": {
+                    "type": "text",
+                    "label": "ピクセル ID",
+                    "help": "TikTok の広告マネージャの「イベントマネージャー」で、ピクセルの名前の下に出る英大文字と数字です（例: C4ABCDEFGHIJ12345678）。",
+                    "pattern": "[A-Z0-9]{15,25}",
+                    "max": 25,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "TikTok Pte. Ltd.",
+                    "data": "見たページの URL とページのメタデータ、参照元、時刻、IP アドレス、ブラウザと端末の情報、Cookie の識別子、ボタンのクリックなどの操作、購入したときの注文の番号・金額・通貨・品の ID と数",
+                    "purpose": "TikTok の広告の効果の測定と、広告の配信のため",
+                    "policy": "https://www.tiktok.com/legal/page/row/privacy-policy/ja-JP"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "tiktok-pixel.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://analytics.tiktok.com"],
+                    "connect-src": ["https://analytics.tiktok.com"],
+                    "img-src": ["https://analytics.tiktok.com"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

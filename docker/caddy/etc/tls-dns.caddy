@@ -1,0 +1,21 @@
+# 証明書の取り方 dns（外から届かないステージング。答えに CLOUDFLARE_TOKEN_FILE を渡したときだけ）。Caddyfile から読み込む
+#
+# Cloudflare の DNS の API の鍵で、DNS の TXT で確かめて取る（外から 80・443 番に届かなくてよい）。
+# 鍵はファイルから読む（{file.…}。install.sh が /srv/ec-sugar/secrets/caddy/cloudflare_token に Caddy の利用者だけが読める 0400 で写す）。
+# 鍵の範囲は、そのドメインの DNS の編集だけにする（docs/install.md）
+(dns_tls) {
+	tls {
+		dns cloudflare {file./run/secrets/ec-sugar/cloudflare_token}
+	}
+}
+
+{$EC_SUGAR_ADMIN_HOST} {
+	import dns_tls
+	import edge
+}
+
+# ショップ（1 店舗の形はショップのホスト、複数の店の形は *.<ショップのドメイン> のワイルドカード 1 枚）。その場で取る形ではないので ask は使わない
+{$EC_SUGAR_SITE_SHOP} {
+	import dns_tls
+	import edge
+}

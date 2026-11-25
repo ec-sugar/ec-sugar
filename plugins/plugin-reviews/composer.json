@@ -1,0 +1,46 @@
+{
+    "name": "ec-sugar/plugin-reviews",
+    "description": "EC-SUGAR 公式の App: 商品レビュー（買った人だけが書け、店が公開を決める）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginReviews\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginReviews\\ReviewServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "reviews",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "customers",
+            "settings": {
+                "publish": {
+                    "type": "choice",
+                    "label": "レビューの公開",
+                    "help": "「すぐに掲載する」にすると、書かれたレビューを確認せずにショップに掲載します。掲載した後でも非公開にできます。",
+                    "options": {
+                        "manual": "店が確認して公開するまで掲載しない",
+                        "immediate": "すぐに掲載する"
+                    },
+                    "default": "manual"
+                }
+            }
+        }
+    }
+}

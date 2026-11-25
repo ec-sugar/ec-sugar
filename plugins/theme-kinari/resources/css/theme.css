@@ -1,0 +1,172 @@
+/*
+ * 公式テーマ 1（kinari）。生成りの地、少し濃いベージュの帯、セージのボタン。見出しは細いセリフ（英字）と明朝体（日本語）。
+ * 色・文字はトークン（CSS の変数）だけで決める。店の見た目は店が決めるので、見る人の OS の設定でダークに切り替えない。
+ * 書体の英字は Cormorant Garamond（SIL OFL 1.1、@fontsource から同梱。自分のオリジンから配るので CSP は 'self' のまま）。
+ * 日本語の明朝体は端末のもの（ヒラギノ明朝・游明朝）。
+ */
+@import "@fontsource/cormorant-garamond/latin-400.css";
+@import "@fontsource/cormorant-garamond/latin-500.css";
+@import "tailwindcss" source("../views");
+
+@theme {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", Meiryo, sans-serif;
+    --font-display: "Cormorant Garamond", "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
+    --font-mincho: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
+
+    --color-canvas: #f6f2ec;
+    --color-band: #ece6dd;
+    --color-band-strong: #e9e2d8;
+    --color-sage-band: #dcddd2;
+    --color-season-band: #dcd3c6;
+    --color-photo-bg: #e9e2d8;
+    --color-line: #e4ddd2;
+    --color-line-strong: #bfb5a8;
+    --color-ink: #2b2723;
+    --color-ink-muted: #4a433c;
+    --color-ink-soft: #6e655c;
+    --color-accent: #66745d;
+    --color-accent-hover: #55614d;
+    --color-on-accent: #ffffff;
+    --color-sold: #6e655c;
+}
+
+@layer base {
+    :root {
+        color-scheme: light;
+    }
+
+    html,
+    body {
+        @apply bg-canvas text-ink font-sans leading-relaxed antialiased;
+        font-size: 14px;
+        letter-spacing: 0.02em;
+    }
+
+    a {
+        @apply text-ink no-underline hover:text-accent-hover;
+    }
+
+    :focus-visible {
+        @apply outline-2 outline-offset-2 outline-accent;
+    }
+}
+
+@utility tabular {
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 商品の説明のブロックと仕様の表（核の部品 <x-storefront::description-blocks>・<x-storefront::product-specs> の印から決める。ADR 0032）。
+ * 部品は class を持たないので、見た目はここだけで決まる。文は店の人が書いた素の文字（改行は pre-line で出す）
+ */
+@layer components {
+    [data-blocks] { display: flex; flex-direction: column; gap: 16px; }
+    [data-blocks] [data-block="paragraph"], [data-blocks] [data-block="note"] p { white-space: pre-line; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="heading"] { margin-top: 8px; color: var(--color-ink); font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; font-family: var(--font-mincho); }
+    [data-blocks] [data-block="heading"][data-level="2"] { font-size: 16px; }
+    [data-blocks] [data-block="heading"][data-level="3"] { font-size: 14px; }
+    [data-blocks] [data-block="list"] { display: flex; flex-direction: column; gap: 4px; padding-left: 1.5em; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="list"][data-style="bullet"] { list-style: disc; }
+    [data-blocks] [data-block="list"][data-style="number"] { list-style: decimal; }
+    [data-blocks] [data-block="image"] { display: flex; flex-direction: column; gap: 8px; }
+    [data-blocks] [data-block="image"] img { width: 100%; height: auto; background: var(--color-photo-bg); }
+    [data-blocks] [data-block="image"] figcaption, [data-blocks] [data-block="table"] caption { color: var(--color-ink-soft); font-size: 12px; text-align: left; }
+    [data-blocks] [data-block="table"] { overflow-x: auto; }
+    [data-blocks] [data-block="table"] table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.6; }
+    [data-blocks] [data-block="table"] caption { padding-bottom: 6px; }
+    [data-blocks] [data-block="table"] th, [data-blocks] [data-block="table"] td { min-width: 4em; padding: 8px 10px; border: 1px solid var(--color-line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="table"] th { background: var(--color-band); color: var(--color-ink); font-weight: 600; }
+    [data-blocks] [data-block="note"] { padding: 12px 16px; border-left: 3px solid var(--color-line-strong); background: var(--color-band); }
+    [data-blocks] [data-block="note"][data-tone="warning"] { border-left-color: var(--color-accent); color: var(--color-ink); }
+    [data-specs] { border-top: 1px solid var(--color-line); }
+    [data-specs] > div { display: grid; grid-template-columns: minmax(6em, 1fr) 2fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-line); }
+    [data-specs] dt { color: var(--color-ink-soft); overflow-wrap: anywhere; }
+    [data-specs] dd { color: var(--color-ink); white-space: pre-line; overflow-wrap: anywhere; }
+}
+
+/*
+ * 種類（色・サイズ）を選ぶ部品（核の部品 <x-storefront::variant-picker> と、それを作り替える核の JavaScript の印から決める。ADR 0036）。
+ * JavaScript が無いときは種類の select（[data-variant-fallback]）、あるときは軸ごとのボタン（[data-variant-axis]）。部品は class を持たない
+ */
+@layer components {
+    [data-variant-picker] { display: flex; flex-direction: column; gap: 16px; }
+    [data-variant-picker] [data-variant-fallback] { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-ink-soft); }
+    [data-variant-picker] [data-variant-fallback][hidden] { display: none; }
+    [data-variant-picker] select { height: 44px; padding: 0 12px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 14px; }
+    [data-variant-picker] [data-variant-axes] { display: flex; flex-direction: column; gap: 16px; }
+    [data-variant-picker] [data-variant-axis] { min-width: 0; margin: 0; padding: 0; border: 0; }
+    [data-variant-picker] legend { display: flex; gap: 8px; margin-bottom: 8px; padding: 0; font-size: 13px; }
+    [data-variant-picker] [data-variant-axis-name] { color: var(--color-ink-soft); }
+    [data-variant-picker] [data-variant-axis-value] { color: var(--color-ink); }
+    [data-variant-picker] [data-variant-values] { display: flex; flex-wrap: wrap; gap: 8px; }
+    [data-variant-picker] [data-variant-value] { min-width: 44px; height: 40px; padding: 0 14px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 13px; cursor: pointer; }
+    [data-variant-picker] [data-variant-value][aria-pressed="true"] { border-color: var(--color-ink); box-shadow: inset 0 0 0 1px var(--color-ink); }
+    [data-variant-picker] [data-variant-value][data-sold-out], [data-variant-picker] [data-variant-value][data-unavailable] { color: var(--color-ink-soft); opacity: .55; text-decoration: line-through; }
+    [data-variant-picker] [data-variant-value][data-unavailable] { border-style: dashed; }
+    [data-variant-picker] [data-variant-value]:focus-visible, [data-variant-picker] select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+/*
+ * オプション（名入れ・ギフト包装など）を選ぶ部品（核の部品 <x-storefront::addon-fields> の印から決める。ADR 0036）。
+ * 選ぶは select、入れる文字は input、付けるはチェックボックス。合計（[data-addon-summary]）は JavaScript があるときだけ出る。部品は class を持たない
+ */
+@layer components {
+    [data-addon-fields] { display: flex; flex-direction: column; gap: 16px; }
+    [data-addon-fields] [data-addon-field] { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    [data-addon-fields] [data-addon-label] { color: var(--color-ink-soft); }
+    [data-addon-fields] [data-addon-required] { margin-left: 6px; color: var(--color-accent); font-size: 11px; }
+    [data-addon-fields] select, [data-addon-fields] input[type="text"] { height: 44px; padding: 0 12px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 14px; }
+    [data-addon-fields] [data-addon-hint] { color: var(--color-ink-soft); font-size: 12px; }
+    [data-addon-fields] [data-addon-toggle] { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    [data-addon-fields] [data-addon-toggle] [data-addon-label] { color: var(--color-ink); }
+    [data-addon-fields] input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--color-accent); }
+    [data-addon-fields] [data-addon-summary] { font-size: 13px; color: var(--color-ink-soft); }
+    [data-addon-fields] [data-addon-summary][hidden] { display: none; }
+    [data-addon-fields] [data-addon-total] { color: var(--color-ink); font-variant-numeric: tabular-nums; }
+    [data-addon-fields] select:focus-visible, [data-addon-fields] input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+/*
+ * 核の共通の区画（basic_*）の字・角・余白をこのテーマに合わせる（核の resources/storefront/sections.css が読む変数。層の外に書く）。
+ * kinari は角を立て、見出しは明朝。区画の間の余白は並びの間隔（gap-22）が持つので、区画の上下は詰める
+ */
+:root {
+    --sugar-radius: 0;
+    --sugar-button-radius: 0;
+    --sugar-heading-font: var(--font-mincho);
+    --sugar-heading-weight: 500;
+    --sugar-section-space: 0;
+}
+
+/*
+ * 核が描く画面（会員のログイン・コード・マイページ、外部送信に関する公表、Cookie の設定。.sugar-page）。
+ * この外枠の main は余白を持たない（画面ごとに箱を持つ）ので、核の画面にも左右の余白を付けて真ん中に置く。
+ * 核の規則は :where() で強さ 0（resources/storefront/apps.css）。層の外に書く
+ */
+.sugar-page {
+    margin-inline: auto;
+    padding: 56px 20px 88px;
+}
+
+@media (min-width: 640px) {
+    .sugar-page {
+        padding-inline: 32px;
+    }
+}
+
+/*
+ * 店の人が選ぶ字の組と角の丸み（ADR 0097。theme.json の style）。核が外枠の <html> の data-sugar-font・data-sugar-radius に選んだ名前を出す。
+ * 既定（見出しを明朝・四角）は上の値のまま。層の外に書くので @theme より強い。色は核の小さな CSS（/theme/style-….css）がこの後に読まれて上書きする
+ */
+:root[data-sugar-font="gothic"] {
+    --font-mincho: var(--font-sans);
+}
+
+:root[data-sugar-font="mincho"] {
+    --font-sans: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
+}
+
+:root[data-sugar-radius="soft"] {
+    --sugar-radius: 0.5rem;
+    --sugar-button-radius: 0.5rem;
+}

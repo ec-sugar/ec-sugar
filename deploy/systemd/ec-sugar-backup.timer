@@ -1,0 +1,13 @@
+# 毎朝の DB の控えの時刻。時刻の帯は、インストーラーと ec-sugar が足す drop-in（ec-sugar-backup.timer.d/10-timezone.conf）が答えの TIMEZONE
+# （既定 Asia/Tokyo）で書き直す（サーバーの時刻の帯〔Ubuntu の既定は UTC〕に頼らない）。この unit だけでも正しく読める形にしておく
+# （前のバージョンの道具がこのファイルをそのまま写しても、タイマーが読めなくならないように）
+[Unit]
+Description=EC-SUGAR daily backup timer
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

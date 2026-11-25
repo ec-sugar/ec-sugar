@@ -1,0 +1,19 @@
+# EC-SUGAR の本体（compose で入口・app・キュー・定期の処理・DB・Redis を動かす）。deploy/install.sh が入れる
+# 止まったコンテナは compose の restart が起こし直す。この unit は起動の順（Docker の後）と、止めるときの入口
+[Unit]
+Description=EC-SUGAR (docker compose)
+Documentation=file:///srv/ec-sugar/src/docs/install.md
+Requires=docker.service
+After=docker.service network-online.target ec-sugar-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ec-sugar start
+ExecStop=/usr/local/bin/ec-sugar stop
+TimeoutStartSec=600
+TimeoutStopSec=180
+
+[Install]
+WantedBy=multi-user.target

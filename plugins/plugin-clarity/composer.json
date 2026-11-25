@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-clarity",
+    "description": "EC-SUGAR の App: Microsoft Clarity（ヒートマップと操作の録画）をショップに入れる（ADR 0034 の差し込み口を使う）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginClarity\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginClarity\\ClarityServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "clarity",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "analytics",
+            "settings": {
+                "project_id": {
+                    "type": "text",
+                    "label": "プロジェクト ID",
+                    "help": "Clarity の「設定」→「セットアップ」に出る、英小文字と数字の ID（例: 3t0wlogvdz）。トラッキングコードの最後の \"script\", の後ろにも書かれています。",
+                    "pattern": "[a-z0-9]{8,12}",
+                    "max": 12,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "Microsoft Corporation（Microsoft Clarity）",
+                    "data": "見たページの URL と参照元、画面の操作（クリック・スクロール・マウスの動き）、画面の見た目（文字は伏せ字にし、入力欄の中身は送りません）、端末とブラウザの種類、Cookie の識別子",
+                    "purpose": "ショップの使いやすさを解析するため（ヒートマップと操作の録画）",
+                    "policy": "https://privacy.microsoft.com/ja-jp/privacystatement"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "clarity.js",
+                        "pages": ["general"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://*.clarity.ms"],
+                    "connect-src": ["https://*.clarity.ms", "https://c.bing.com"],
+                    "img-src": ["https://*.clarity.ms", "https://c.bing.com"]
+                },
+                "consent": ["analytics"]
+            }
+        }
+    }
+}

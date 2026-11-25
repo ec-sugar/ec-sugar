@@ -1,0 +1,368 @@
+/* 公式テーマ 3（botanica）。色は固定のライト。写真はショップが登録した同一オリジンの素材を使用する。 */
+@import "@fontsource/cormorant-garamond/latin-400.css";
+@import "@fontsource/cormorant-garamond/latin-500.css";
+@import "tailwindcss" source("../views");
+
+@theme {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", Meiryo, sans-serif;
+    --font-display: "Cormorant Garamond", "Yu Mincho", serif;
+    --font-mincho: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    --color-canvas: #ffffff;
+    --color-band: #f4f5f1;
+    --color-band-strong: #edf0e8;
+    --color-sage-band: #f0efed;
+    --color-season-band: #eef1e9;
+    --color-photo-bg: #f4f5f1;
+    --color-line: #e4e2de;
+    --color-line-strong: #b7b4af;
+    --color-ink: #222222;
+    --color-ink-muted: #55534f;
+    --color-ink-soft: #706d68;
+    --color-accent: #6d8266;
+    --color-accent-hover: #4b6245;
+    --color-on-accent: #ffffff;
+    --color-sold: #706d68;
+    /* トップの文字の面（C 案）。ヒーローは濃いセージに白い文字（対比 6.7:1。明るい方のセージ #6d8266 では 4.2:1 で足りない） */
+    --color-hero-panel: #4b6245;
+    --color-on-hero-panel: #ffffff;
+    --color-hero-panel-soft: #dfe8d8; /* 面の上の英字の一言（対比 5.3:1） */
+    --color-promo-panel: #edf0e8; /* 右の特集の文字の面（薄いセージ） */
+}
+
+@layer base {
+    :root { color-scheme: light; }
+    html, body { @apply bg-canvas text-ink font-sans leading-relaxed antialiased; font-size: 14px; }
+    a { @apply text-ink no-underline hover:text-accent-hover; }
+    :focus-visible { @apply outline-2 outline-offset-4 outline-accent; }
+    img { max-width: 100%; }
+}
+
+@utility tabular { font-variant-numeric: tabular-nums; }
+
+@layer components {
+    .botanica-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 24px; min-height: 96px; padding: 18px 2.5%; }
+    .botanica-nav { display: flex; flex-wrap: wrap; gap: 24px; font-size: 12px; }
+    .botanica-nav a { display: inline-flex; align-items: center; min-height: 44px; }
+    .botanica-logo { font-family: var(--font-sans); font-size: 28px; font-weight: 500; letter-spacing: .14em; overflow-wrap: anywhere; text-align: center; max-width: 36vw; }
+    .botanica-tools { display: flex; justify-content: end; gap: 8px; }
+    .botanica-icon-link { display: inline-flex; width: 44px; height: 44px; justify-content: center; align-items: center; }
+    .botanica-home { max-width: 1640px; margin: auto; padding: 0 20px; }
+    .botanica-categories { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: 36px; }
+    .botanica-category { position: relative; display: block; aspect-ratio: .88; overflow: hidden; background: var(--color-photo-bg); }
+    .botanica-category img { width: 100%; height: 100%; object-fit: cover; }
+    .botanica-category::after { content: ''; position: absolute; inset: 0; background: linear-gradient(transparent 45%, var(--color-ink)); opacity: .4; }
+    .botanica-category span { position: absolute; z-index: 1; bottom: 32px; left: 16px; right: 16px; text-align: center; font-family: var(--font-display); font-size: 36px; color: var(--color-on-accent); overflow-wrap: anywhere; }
+    .botanica-section { padding: 64px 32px; }
+    .botanica-section-title { text-align: center; margin-bottom: 32px; }
+    .botanica-product-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px; }
+    .botanica-text-link { display: inline-flex; align-items: center; min-height: 44px; border-bottom: 1px solid currentColor; font-size: 12px; }
+    .botanica-looks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .botanica-promises { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin: 0 32px; padding: 36px 0; border-top: 1px solid var(--color-line); }
+    .botanica-footer { max-width: 1640px; margin: auto; padding: 52px; border-top: 1px solid var(--color-line); }
+    .botanica-footer-main { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 40px; }
+    .botanica-footer .botanica-logo { text-align: left; max-width: none; }
+    @media (max-width: 1023px) {
+        .botanica-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .botanica-nav { gap: 12px; }
+        .botanica-promises { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 639px) {
+        .botanica-header { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 16px 12px 8px; }
+        .botanica-header .botanica-logo { grid-row: 1; grid-column: 1; text-align: left; max-width: none; font-size: 22px; }
+        .botanica-tools { grid-row: 1; grid-column: 2; gap: 0; }
+        .botanica-nav { grid-row: 2; grid-column: 1 / -1; justify-content: center; gap: 24px; }
+        .botanica-home { padding: 0 12px; }
+        .botanica-categories { gap: 8px; margin-top: 24px; }
+        .botanica-category { aspect-ratio: .65; }
+        .botanica-category span { font-size: 20px; bottom: 18px; left: 6px; right: 6px; }
+        .botanica-section { padding: 44px 0; }
+        .botanica-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 12px; }
+        .botanica-looks { gap: 12px; }
+        .botanica-promises { grid-template-columns: 1fr; margin: 0; }
+        .botanica-footer { padding: 36px 20px 24px; }
+        .botanica-footer-main { grid-template-columns: 1fr 1fr; gap: 32px 20px; }
+        .botanica-footer-main > div { grid-column: 1 / -1; }
+    }
+}
+
+@layer components {
+    .botanica-announcement { background: var(--color-accent); color: var(--color-on-accent); text-align: center; padding: 12px 20px; font-size: 12px; }
+    .botanica-header { grid-template-columns: 1fr auto 1fr; min-height: 108px; border-bottom: 1px solid var(--color-line); }
+    .botanica-header-caption { font-family: var(--font-display); font-size: 20px; color: var(--color-accent); }
+    .botanica-logo { font-family: var(--font-display); font-size: 32px; letter-spacing: .12em; }
+    .botanica-nav { justify-content: center; gap: 40px; min-height: 60px; align-items: center; font-family: var(--font-mincho); font-size: 14px; padding: 8px 20px; }
+    .botanica-home { max-width: 1480px; padding: 0 30px; }
+    .botanica-section { padding: 64px 0; }
+    .botanica-section-title h2 { font-family: var(--font-display); font-size: 38px; letter-spacing: .01em; }
+    .botanica-product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 30px; }
+    .botanica-product > div:first-child { aspect-ratio: 1; }
+    .botanica-product > div:last-child { padding-top: 6px; }
+    .botanica-category-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px 32px; padding: 36px 0 0; }
+    .botanica-category-links a { font-family: var(--font-mincho); font-size: 18px; padding: 10px 4px; border-bottom: 1px solid var(--color-line); }
+    .botanica-category-links a:hover { border-color: var(--color-accent); }
+    .botanica-promises { margin: 0; }
+    .botanica-footer { background: var(--color-band); max-width: none; padding: 56px max(30px, calc((100vw - 1420px)/2)); }
+    @media (max-width: 767px) {
+        .botanica-home { padding: 0 16px; }
+        .botanica-header { grid-template-columns: 1fr auto; padding: 20px 16px; min-height: 86px; }
+        .botanica-header-caption { display: none; }
+        .botanica-header .botanica-logo { grid-column: 1; grid-row: 1; font-size: 25px; text-align: left; max-width: none; }
+        .botanica-header .botanica-tools { grid-column: 2; grid-row: 1; }
+        .botanica-nav { gap: 10px 24px; font-size: 12px; }
+        .botanica-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 16px; }
+        .botanica-section { padding: 44px 0; }
+        .botanica-category-links a { font-size: 15px; }
+    }
+}
+
+/* トップのヒーロー・右の特集・季節の特集。
+   C 案: 「大きな枠＋右に特集 2 つ」の組み方のまま、各枠を「写真」と「文字の面」に分け、文字を写真に重ねない（どんな写真でも読める）。
+   季節 2: 区画の高さは文の側が決め（下限 360px）、写真は流れから外してその高さに合わせて切り取る（縦長の写真でも区画が伸びない。上限 560px） */
+@layer components {
+    /* 「大きな枠＋右に特集 2 つ」は区画 2 つ（ヒーロー「写真と面」と右の特集「ヒーローの右に縦」）。ページの箱を 2 列の格子にし、
+       区画はふつう 2 列にまたがる。ヒーローのすぐ後に右の特集が来たときだけ、左右の列に分けて同じ行に並べる（区画は前後を前提にしない。
+       離れて置けば、どちらも幅いっぱい）。:has() を知らないブラウザでは、2 つが縦に積まれるだけ */
+    .botanica-home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 28px; align-content: start; }
+    .botanica-home > * { grid-column: 1 / -1; min-width: 0; }
+    .botanica-mosaic-hero:has(+ .botanica-mosaic-side) { grid-column: 1; }
+    .botanica-mosaic-hero + .botanica-mosaic-side { grid-column: 2; padding-top: 0; }
+    .botanica-mosaic-side { padding-top: 28px; }
+    .botanica-kicker { font-family: var(--font-display); font-style: italic; color: var(--color-accent); font-size: 28px; line-height: 1.3; }
+
+    .botanica-hero { display: flex; flex-direction: column; min-height: clamp(560px, 46vw, 720px); background: var(--color-hero-panel); }
+    .botanica-hero-media { position: relative; flex: 1 1 auto; min-height: 320px; overflow: hidden; background: var(--color-photo-bg); }
+    .botanica-hero-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 60%; }
+    /* 特集が無く全幅の横長の枠になるときは、被写体の真ん中を見せる */
+    .botanica-mosaic-hero:not(:has(+ .botanica-mosaic-side)) .botanica-hero-image { object-position: center; }
+    .botanica-hero-panel { display: flex; flex-direction: column; flex: 0 0 auto; padding: 32px 40px 36px; background: var(--color-hero-panel); color: var(--color-on-hero-panel); }
+    .botanica-hero-panel .botanica-kicker { color: var(--color-hero-panel-soft); font-size: 24px; margin-bottom: 4px; }
+    .botanica-hero-panel :is(h1, h2) { font-family: var(--font-display); font-size: clamp(34px, 3.4vw, 56px); font-weight: 400; line-height: 1.25; overflow-wrap: anywhere; }
+    .botanica-hero-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 32px; margin-top: 16px; }
+    .botanica-hero-row p { min-width: 0; overflow-wrap: anywhere; }
+    .botanica-hero-link { flex: none; display: inline-flex; align-items: center; min-height: 48px; padding: 12px 30px; background: var(--color-canvas); color: var(--color-ink); font-size: 12px; white-space: nowrap; }
+    .botanica-hero-link:hover { color: var(--color-accent-hover); }
+    /* 濃い面の上では、明るい方のセージの枠線が見えにくいので白で */
+    .botanica-hero-panel :focus-visible { outline-color: var(--color-on-hero-panel); }
+
+    .botanica-promos { display: grid; grid-auto-rows: minmax(260px, 1fr); gap: 28px; }
+    .botanica-promo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .botanica-promo-media { position: relative; overflow: hidden; background: var(--color-photo-bg); }
+    .botanica-promo-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .botanica-promo-copy { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; padding: 28px; background: var(--color-promo-panel); }
+    .botanica-promo-copy .botanica-kicker { color: var(--color-hero-panel); font-size: 22px; margin-bottom: 4px; }
+    /* 題は文節で折り返す（対応していないブラウザは普通の折り返し） */
+    .botanica-promo h2 { font-family: var(--font-display); font-size: clamp(22px, 1.9vw, 30px); line-height: 1.3; margin-bottom: 12px; overflow-wrap: anywhere; word-break: auto-phrase; }
+
+    .botanica-seasonal { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); min-height: 360px; margin: 0 0 32px; background: var(--color-season-band); }
+    .botanica-seasonal-media { position: relative; overflow: hidden; background: var(--color-photo-bg); }
+    .botanica-seasonal-photo { position: absolute; inset: 0; width: 100%; height: 100%; max-height: 560px; object-fit: cover; }
+    .botanica-seasonal-copy { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 12px; min-width: 0; padding: 56px 64px; overflow-wrap: anywhere; }
+
+    @media (min-width: 768px) {
+        /* 写真の無いヒーローは文字の面だけ。面を伸ばして文字を真ん中に */
+        .botanica-hero:not(.botanica-hero-photo) { min-height: 360px; }
+        .botanica-hero:not(.botanica-hero-photo) .botanica-hero-panel { flex-grow: 1; justify-content: center; }
+    }
+    @media (max-width: 767px) {
+        .botanica-home { grid-template-columns: minmax(0, 1fr); }
+        .botanica-mosaic-hero:has(+ .botanica-mosaic-side), .botanica-mosaic-hero + .botanica-mosaic-side { grid-column: 1 / -1; }
+        .botanica-mosaic-side, .botanica-mosaic-hero + .botanica-mosaic-side { padding-top: 16px; }
+        .botanica-hero { min-height: 0; }
+        .botanica-hero-media { flex: none; min-height: 0; aspect-ratio: 4 / 3; }
+        .botanica-hero-panel { padding: 24px 20px 28px; }
+        .botanica-hero-panel .botanica-kicker { font-size: 18px; }
+        .botanica-hero-panel :is(h1, h2) { font-size: 32px; }
+        .botanica-hero-row { flex-direction: column; align-items: flex-start; gap: 16px; }
+        .botanica-promos { grid-auto-rows: auto; gap: 12px; }
+        .botanica-promo { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); min-height: 150px; }
+        .botanica-promo-copy { padding: 16px 18px; }
+        .botanica-promo-copy .botanica-kicker { font-size: 16px; }
+        .botanica-promo h2 { font-size: 22px; margin-bottom: 4px; }
+        .botanica-seasonal { grid-template-columns: minmax(0, 1fr); min-height: 0; margin: 0 0 24px; }
+        .botanica-seasonal-media { aspect-ratio: 4 / 3; }
+        .botanica-seasonal-copy { padding: 28px 20px 32px; }
+    }
+}
+
+/*
+ * 区画のパターン（ADR 0039 区切り 4）。既定のパターンは上の今までの見た目のまま。どれも文字を写真に重ねない（C 案）。
+ * どれもレスポンシブで、狭い画面（390px）でも横にはみ出さない: 列は minmax(0, 1fr)、横に流れる並びは自分の箱の中だけが横に動く
+ */
+@layer components {
+    .botanica-page-title { padding: 44px 0 8px; text-align: center; font-family: var(--font-display); font-size: clamp(32px, 4vw, 52px); font-weight: 400; line-height: 1.25; overflow-wrap: anywhere; }
+
+    /* ヒーロー「左右」「格子」（文字の面はいつもの濃いセージ） */
+    .botanica-hero-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: clamp(420px, 40vw, 600px); background: var(--color-hero-panel); }
+    .botanica-hero-split .botanica-hero-media { min-height: 0; }
+    .botanica-hero-split .botanica-hero-panel, .botanica-hero-grid .botanica-hero-panel { justify-content: center; padding: 48px 48px 52px; }
+    .botanica-hero-split:not(.botanica-hero-photo) { grid-template-columns: minmax(0, 1fr); min-height: 360px; }
+    .botanica-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
+    .botanica-hero-grid .botanica-hero-panel { min-height: 420px; }
+    .botanica-hero-grid-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .botanica-hero-grid-photos img { width: 100%; height: 100%; aspect-ratio: 1; object-fit: cover; background: var(--color-photo-bg); }
+    .botanica-hero-grid-photos[data-count="1"] { grid-template-columns: minmax(0, 1fr); }
+    .botanica-hero-grid-photos[data-count="3"] img:first-child { grid-column: 1 / -1; aspect-ratio: 2 / 1; }
+
+    /* 右の特集「横に 2 つ」 */
+    .botanica-promos-row { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(240px, auto); padding-top: 28px; }
+
+    /* カテゴリ「写真のカード」「丸」 */
+    .botanica-categories .botanica-category span { font-size: 30px; }
+    .botanica-category-circles { display: flex; flex-wrap: wrap; justify-content: center; gap: 28px 36px; padding: 40px 0 0; }
+    .botanica-category-circle { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 140px; text-align: center; }
+    .botanica-category-circle-photo { display: block; width: 140px; height: 140px; overflow: hidden; border-radius: 9999px; background: var(--color-photo-bg); }
+    .botanica-category-circle-photo img { width: 100%; height: 100%; object-fit: cover; }
+    .botanica-category-circle-label { font-family: var(--font-mincho); font-size: 15px; overflow-wrap: anywhere; }
+
+    /* 商品の並び「2 列の大きな札」「横に流れる」 */
+    .botanica-product-large { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 30px; max-width: 1080px; margin: auto; }
+    .botanica-product-scroll { position: relative; display: flex; gap: 24px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; padding-bottom: 12px; }
+    .botanica-product-scroll > * { flex: 0 0 calc((100% - 96px) / 5); min-width: 0; scroll-snap-align: start; }
+
+    /* 季節の特集「写真が右」「写真が上」 */
+    .botanica-seasonal-reverse { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+    .botanica-seasonal-reverse .botanica-seasonal-media { order: 2; }
+    .botanica-seasonal-stack { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .botanica-seasonal-stack .botanica-seasonal-media { aspect-ratio: 16 / 7; }
+    .botanica-seasonal-stack .botanica-seasonal-copy { align-items: center; text-align: center; padding: 44px 32px 52px; }
+
+    /* 安心の一行「濃い地」 */
+    .botanica-promises-dark { margin: 32px 0 0; padding: 36px 40px; border-top: 0; background: var(--color-hero-panel); color: var(--color-on-hero-panel); }
+
+    @media (max-width: 1023px) {
+        .botanica-product-scroll > * { flex-basis: calc((100% - 48px) / 3); }
+    }
+    @media (max-width: 767px) {
+        .botanica-hero-split, .botanica-hero-grid { grid-template-columns: minmax(0, 1fr); min-height: 0; gap: 12px; }
+        .botanica-hero-split .botanica-hero-media { aspect-ratio: 4 / 3; }
+        .botanica-hero-split .botanica-hero-panel, .botanica-hero-grid .botanica-hero-panel { min-height: 0; padding: 24px 20px 28px; }
+        .botanica-hero-grid-photos { gap: 8px; }
+        .botanica-promos-row { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; padding-top: 16px; }
+        .botanica-categories .botanica-category span { font-size: 18px; }
+        .botanica-category-circles { gap: 20px 16px; padding-top: 28px; }
+        .botanica-category-circle { width: 96px; }
+        .botanica-category-circle-photo { width: 96px; height: 96px; }
+        .botanica-category-circle-label { font-size: 13px; }
+        .botanica-product-large { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+        .botanica-product-scroll { gap: 16px; }
+        .botanica-product-scroll > * { flex-basis: 44%; }
+        .botanica-seasonal-reverse { grid-template-columns: minmax(0, 1fr); }
+        .botanica-seasonal-reverse .botanica-seasonal-media { order: 0; }
+        .botanica-seasonal-stack .botanica-seasonal-media { aspect-ratio: 4 / 3; }
+        .botanica-seasonal-stack .botanica-seasonal-copy { padding: 28px 20px 32px; }
+        .botanica-promises-dark { margin: 24px 0 0; padding: 28px 20px; }
+    }
+}
+
+/*
+ * 層の外に書く上書き（層の中の Tailwind の色の class と、核の汎用の区画の :where() の規則に勝たせる）:
+ * 濃い地の上の文字は白に、核の汎用の区画（basic_*。自由なページ）は角を丸めず、見出しはテーマの書体に
+ */
+.botanica-promises-dark :is(p, span) { color: var(--color-on-hero-panel); }
+.botanica-free-page .sugar-section img { border-radius: 0; }
+.botanica-free-page .sugar-section__button { border-radius: 0; font-size: 13px; }
+.botanica-free-page .sugar-section__heading { font-family: var(--font-display); font-size: 30px; font-weight: 400; }
+
+/*
+ * 商品の説明のブロックと仕様の表（核の部品 <x-storefront::description-blocks>・<x-storefront::product-specs> の印から決める。ADR 0032）。
+ * 部品は class を持たないので、見た目はここだけで決まる。文は店の人が書いた素の文字（改行は pre-line で出す）
+ */
+@layer components {
+    [data-blocks] { display: flex; flex-direction: column; gap: 16px; }
+    [data-blocks] [data-block="paragraph"], [data-blocks] [data-block="note"] p { white-space: pre-line; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="heading"] { margin-top: 8px; color: var(--color-ink); font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="heading"][data-level="2"] { font-size: 16px; }
+    [data-blocks] [data-block="heading"][data-level="3"] { font-size: 14px; }
+    [data-blocks] [data-block="list"] { display: flex; flex-direction: column; gap: 4px; padding-left: 1.5em; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="list"][data-style="bullet"] { list-style: disc; }
+    [data-blocks] [data-block="list"][data-style="number"] { list-style: decimal; }
+    [data-blocks] [data-block="image"] { display: flex; flex-direction: column; gap: 8px; }
+    [data-blocks] [data-block="image"] img { width: 100%; height: auto; background: var(--color-photo-bg); }
+    [data-blocks] [data-block="image"] figcaption, [data-blocks] [data-block="table"] caption { color: var(--color-ink-soft); font-size: 12px; text-align: left; }
+    [data-blocks] [data-block="table"] { overflow-x: auto; }
+    [data-blocks] [data-block="table"] table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.6; }
+    [data-blocks] [data-block="table"] caption { padding-bottom: 6px; }
+    [data-blocks] [data-block="table"] th, [data-blocks] [data-block="table"] td { min-width: 4em; padding: 8px 10px; border: 1px solid var(--color-line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    [data-blocks] [data-block="table"] th { background: var(--color-band); color: var(--color-ink); font-weight: 600; }
+    [data-blocks] [data-block="note"] { padding: 12px 16px; border-left: 3px solid var(--color-line-strong); background: var(--color-band); }
+    [data-blocks] [data-block="note"][data-tone="warning"] { border-left-color: var(--color-accent); color: var(--color-ink); }
+    [data-specs] { border-top: 1px solid var(--color-line); }
+    [data-specs] > div { display: grid; grid-template-columns: minmax(6em, 1fr) 2fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-line); }
+    [data-specs] dt { color: var(--color-ink-soft); overflow-wrap: anywhere; }
+    [data-specs] dd { color: var(--color-ink); white-space: pre-line; overflow-wrap: anywhere; }
+}
+
+/*
+ * 種類（色・サイズ）を選ぶ部品（核の部品 <x-storefront::variant-picker> と、それを作り替える核の JavaScript の印から決める。ADR 0036）。
+ * JavaScript が無いときは種類の select（[data-variant-fallback]）、あるときは軸ごとのボタン（[data-variant-axis]）。部品は class を持たない
+ */
+@layer components {
+    [data-variant-picker] { display: flex; flex-direction: column; gap: 16px; }
+    [data-variant-picker] [data-variant-fallback] { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-ink-soft); }
+    [data-variant-picker] [data-variant-fallback][hidden] { display: none; }
+    [data-variant-picker] select { height: 44px; padding: 0 12px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 14px; }
+    [data-variant-picker] [data-variant-axes] { display: flex; flex-direction: column; gap: 16px; }
+    [data-variant-picker] [data-variant-axis] { min-width: 0; margin: 0; padding: 0; border: 0; }
+    [data-variant-picker] legend { display: flex; gap: 8px; margin-bottom: 8px; padding: 0; font-size: 13px; }
+    [data-variant-picker] [data-variant-axis-name] { color: var(--color-ink-soft); }
+    [data-variant-picker] [data-variant-axis-value] { color: var(--color-ink); }
+    [data-variant-picker] [data-variant-values] { display: flex; flex-wrap: wrap; gap: 8px; }
+    [data-variant-picker] [data-variant-value] { min-width: 44px; height: 40px; padding: 0 14px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 13px; cursor: pointer; }
+    [data-variant-picker] [data-variant-value][aria-pressed="true"] { border-color: var(--color-ink); box-shadow: inset 0 0 0 1px var(--color-ink); }
+    [data-variant-picker] [data-variant-value][data-sold-out], [data-variant-picker] [data-variant-value][data-unavailable] { color: var(--color-ink-soft); opacity: .55; text-decoration: line-through; }
+    [data-variant-picker] [data-variant-value][data-unavailable] { border-style: dashed; }
+    [data-variant-picker] [data-variant-value]:focus-visible, [data-variant-picker] select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+/*
+ * オプション（名入れ・ギフト包装など）を選ぶ部品（核の部品 <x-storefront::addon-fields> の印から決める。ADR 0036）。
+ * 選ぶは select、入れる文字は input、付けるはチェックボックス。合計（[data-addon-summary]）は JavaScript があるときだけ出る。部品は class を持たない
+ */
+@layer components {
+    [data-addon-fields] { display: flex; flex-direction: column; gap: 16px; }
+    [data-addon-fields] [data-addon-field] { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    [data-addon-fields] [data-addon-label] { color: var(--color-ink-soft); }
+    [data-addon-fields] [data-addon-required] { margin-left: 6px; color: var(--color-accent); font-size: 11px; }
+    [data-addon-fields] select, [data-addon-fields] input[type="text"] { height: 44px; padding: 0 12px; border: 1px solid var(--color-line-strong); border-radius: 0; background: var(--color-canvas); color: var(--color-ink); font-size: 14px; }
+    [data-addon-fields] [data-addon-hint] { color: var(--color-ink-soft); font-size: 12px; }
+    [data-addon-fields] [data-addon-toggle] { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    [data-addon-fields] [data-addon-toggle] [data-addon-label] { color: var(--color-ink); }
+    [data-addon-fields] input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--color-accent); }
+    [data-addon-fields] [data-addon-summary] { font-size: 13px; color: var(--color-ink-soft); }
+    [data-addon-fields] [data-addon-summary][hidden] { display: none; }
+    [data-addon-fields] [data-addon-total] { color: var(--color-ink); font-variant-numeric: tabular-nums; }
+    [data-addon-fields] select:focus-visible, [data-addon-fields] input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+/*
+ * 核の共通の区画（basic_*）の字・角・余白をこのテーマに合わせる（核の resources/storefront/sections.css が読む変数。層の外に書く）。
+ * botanica は角を立て、見出しは明朝。区画は余白を内側で持つ（テーマの区画と同じく上下 4rem 前後）
+ */
+:root {
+    --sugar-radius: 0;
+    --sugar-button-radius: 0;
+    --sugar-heading-font: var(--font-mincho);
+    --sugar-heading-weight: 500;
+    --sugar-section-space: clamp(2.5rem, 5vw, 4rem);
+}
+
+/*
+ * 核が描く画面（会員のログイン・コード・マイページ、外部送信に関する公表、Cookie の設定。.sugar-page）。
+ * この外枠の main は余白を持たない（画面ごとに箱を持つ）ので、核の画面にも左右の余白を付けて真ん中に置く。
+ * 核の規則は :where() で強さ 0（resources/storefront/apps.css）。層の外に書く
+ */
+.sugar-page { margin-inline: auto; padding: 56px 30px 88px; }
+@media (max-width: 639px) { .sugar-page { padding-inline: 16px; } }
+
+/*
+ * 店の人が選ぶ字の組と角の丸み（ADR 0097。theme.json の style）。核が外枠の <html> の data-sugar-font・data-sugar-radius に選んだ名前を出す。
+ * 既定（見出しを明朝・四角）は上の値のまま。層の外に書くので @theme より強い。色は核の小さな CSS（/theme/style-….css）がこの後に読まれて上書きする
+ */
+:root[data-sugar-font="gothic"] {
+    --font-mincho: var(--font-sans);
+}
+
+:root[data-sugar-radius="soft"] {
+    --sugar-radius: 0.5rem;
+    --sugar-button-radius: 0.5rem;
+}

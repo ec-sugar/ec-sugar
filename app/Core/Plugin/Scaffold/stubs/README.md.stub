@@ -1,0 +1,28 @@
+# __TITLE__（EC-SUGAR の App）
+
+`php artisan make:plugin __NAME__` のひな形から作った App です。中身（表・画面・操作）を App に合わせて書き換えます。
+作る手順と決まりは docs/development/making-apps.md（ひな形を起点にした App の作り方）。
+
+## 使い方
+
+1. 管理画面の店のメニュー「App」から「__TITLE__」を開き、「使う」にします（運用の段階・直前の再確認）。
+2. メニューの「App」の下に「__TITLE__」が出ます。右上の「記録を足す」から名前を入れて足します。
+3. 一覧の記録を押すと 1 件の画面です。「直す」の欄で書き直す、「受付を終える」、「精算済みにする」（お金の段階の人だけ。パスキーでもう一度確認）。
+4. ショップの `/p/__NAME__` に、受付中の記録の名前が新しい順に並びます。
+
+- 使うのをやめると、管理画面にもショップにも出なくなります（記録は残ります）
+- 1 つの店に 1000 件まで
+
+## 作り
+
+| ファイル | 役 |
+|---|---|
+| `composer.json` | パッケージとマニフェスト（`extra.ec-sugar`: 名前・プラグイン API・目的 `__CATEGORY__`）。ルートの composer.json から path で入れる |
+| `src/__STUDLY__ServiceProvider.php` | 登録簿への登録（`PluginDefinition`）と、ショップの経路（`/p/__NAME__`。公開の印と `plugin:__NAME__` は核が付ける） |
+| `database/migrations/…_create___PREFIX___items_table.php` | 店の DB の表 `__PREFIX___items`。状態と空でない名前は DB でも守る |
+| `src/__STUDLY__Items.php` | 足す・直す・終える・精算済みにする。連鎖のロック → 行のロック → 同じトランザクションのイベント（`__PREFIX__.created`・`__PREFIX__.updated`・`__PREFIX__.closed`・`__PREFIX__.settled`。中身は ID と状態だけ） |
+| `src/__STUDLY__AdminPage.php` | 管理画面の App の画面（一覧・1 件・操作）と、足す・直すの欄（核の `AdminPageHandler` と `AdminFormHandler`）。精算は `money: true` |
+| `src/Http/__STUDLY__Controller.php`・`resources/views/index.blade.php` | ショップの画面（テーマの外枠の中に App の Blade を描く） |
+
+テストは `tests/Feature/Plugin/__STUDLY__AppTest.php`（うまくいく流れ・使っていない店では 404・ほかの店の記録は 404・運用の段階でない人は 403・お金の操作は 403 と 423）。
+管理画面のヘルプは `resources/admin/help/__NAME__.js`。

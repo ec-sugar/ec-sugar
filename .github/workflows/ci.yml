@@ -1,0 +1,203 @@
+name: ci
+
+# ふだんの検査（ADR 0099）: pint・phpstan・依存の監査・PHP のテスト（check）、秘密の検査（secrets）、木によらないスクリプトの確かめ
+# （scripts）、管理画面の依存の監査と組み立て（front）。GitHub の走らせ役（ubuntu-24.04）で動かす。ブラウザのテスト（e2e）は 1.0 の後に足す。
+# push・プルリクエスト・手で頼んだ時と、配る道（release.yml）が配る前に呼んだ時に走る。
+#
+# 外の写し（fork）からのプルリクエストでも安全な形にしてある:
+#   - 使うのは pull_request だけ（pull_request_target は使わない。外のコードに書ける権限と秘密を渡さないため）
+#   - 秘密（secrets）を使わない。鍵と DB のパスワードは、この走りだけの使い捨ての見本の値
+#   - 権限はリポジトリを読むだけ。取り出しの認証を作業の場所に残さない（persist-credentials: false）
+#
+# 外部の action はコミットの SHA で固定する（タグは後から付け替えられる）。横の注記がその SHA のバージョン
+# （tests/Unit/ReleaseWorkflowTest.php が見張る）
+
+on:
+  # タグの push は release.yml がこの workflow を呼ぶので、ここではブランチだけ
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同じブランチ・同じプルリクエストに続けて送ったら、前の走りは途中で止める
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    services:
+      db:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ec_central
+          POSTGRES_USER: ec
+          POSTGRES_PASSWORD: ec_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ec -d ec_central"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: "8.5"
+          extensions: pdo_pgsql, intl, gd, zip, bcmath, redis, pcntl, exif
+          coverage: none
+
+      # composer.lock が composer.json とずれていたら落とす（入れるのは lock に書かれたバージョンだけ）
+      - name: Validate lock
+        run: composer validate --no-check-publish --no-check-all
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      # --- セキュリティ検査（落ちたら先に進まない）
+      - name: Dependency audit
+        run: composer audit --locked
+
+      # 同時に動かす処理を 2 つまでにする設定（走らせ役のメモリに合わせる）
+      - name: Static analysis
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G --configuration=phpstan.ci.neon
+
+      - name: Code style
+        run: vendor/bin/pint --test
+
+      # テストの DB はこの仕事の使い捨て（終われば消える）なので、書き出しの同期（fsync）を止めて速くする（ADR 0057）
+      - name: Tune the throwaway test database
+        run: |
+          docker exec ${{ job.services.db.id }} psql -U ec -d ec_central -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" -c "SELECT pg_reload_conf()"
+
+      # 本番と同じく、アプリは superuser ではないロールで DB に入る（CREATEDB / CREATEROLE のみ）。
+      # テストは ec_test の名前の DB で走らせる（テストの入口が ec_test でない DB では止める）
+      - name: Create least-privilege app role and test database
+        run: |
+          docker exec ${{ job.services.db.id }} psql -U ec -d ec_central -v ON_ERROR_STOP=1 -c \
+            "CREATE ROLE ec_app WITH LOGIN PASSWORD 'ec_ci' NOSUPERUSER CREATEDB CREATEROLE; ALTER DATABASE ec_central OWNER TO ec_app;" -c "CREATE DATABASE ec_test OWNER ec_app;"
+
+      # 並べて流す（ADR 0057）。数は既定の CPU の数。並べた各々は ec_test_p<番号> の組で、店の DB は移行を流し終えた型から写す
+      - name: Tests
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_DATABASE: ec_test
+          DB_USERNAME: ec_app
+          DB_PASSWORD: ec_ci
+          TENANT_DB_PREFIX: ec_test_t_
+          CACHE_STORE: array
+          SESSION_DRIVER: array
+          QUEUE_CONNECTION: sync
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "6379"  # phpunit.xml は開発用の 63799 を指すので CI 側で上書きする
+        run: php artisan test --parallel
+
+  # 秘密の検査（全部の履歴）。gitleaks の公式のイメージをバージョンと digest で固定して動かす（GitHub の action は組織のリポジトリでは
+  # ライセンスの秘密を求めるので使わない）。決まりは gitleaks の既定（公開の木には検査を緩める設定を置かない。書き出しも同じ決まりで止める）
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # 取り出した木の持ち主とコンテナの利用者が違っても git が読めるように、この走りの中だけ safe.directory を足す。値は伏せて出す
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git /repo --redact --no-banner --exit-code 1
+
+  # 木によらないスクリプトの確かめ（compose の守り・入口の Caddy・運用の部品・公開版の形の更新の確かめ）。どれも使い捨ての置き場と
+  # 偽の部品か本物の compose・Caddy で確かめ、外へは送らない（イメージを取る時のほか）
+  scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check production compose
+        run: bash docker/check-compose.sh
+
+      - name: Check Caddy SNI, Host, unknown names and compression
+        run: bash docker/check-caddy-sni.sh
+
+      - name: Check deploy helpers
+        run: bash docker/check-deploy.sh
+
+      - name: Check release verification
+        run: bash docker/check-release.sh
+
+      # 外への通信の出口の代理（ADR 0102）。本番の形の compose（Tunnel の形と止める形を重ねたもの）を使い捨ての名前で立て、
+      # 許した名前だけ届く・住所の直書きと許していない名前は断る・代理を通らない道と DNS で抜ける道が無い・メールは決めた宛先だけ、を
+      # 手元のコンテナの偽の宛先で確かめる（外の本物には頼らない）。PHP はアプリと同じ docker/Dockerfile の php-base の段を作って使う
+      - name: Check egress proxy
+        run: bash docker/check-egress.sh
+
+      - name: Check external sentinel
+        run: bash docker/check-sentinel.sh
+
+  # 管理画面の JavaScript: lock のとおりに入れ（入れる時のスクリプトは動かさない）、既知の脆弱性と署名を確かめ、組み立てる
+  front:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: Use the same npm as development
+        run: npm install -g npm@11.21.1 --ignore-scripts --no-fund --no-audit && npm --version
+
+      - name: Install npm dependencies (lock only, no install scripts)
+        run: npm ci --ignore-scripts --no-fund
+
+      # 署名の確かめは、置き場の鍵を取り損ねた時（EMISSINGSIGNATUREKEY）だけ間を置いて 3 回まで確かめ直す
+      - name: npm audit
+        run: |
+          ops/dev/npm-audit.sh
+          for attempt in 1 2 3; do
+            if npm audit signatures > signatures.log 2>&1; then cat signatures.log; exit 0; fi
+            cat signatures.log
+            grep -q EMISSINGSIGNATUREKEY signatures.log || exit 1
+            echo "鍵を取り損ねた（${attempt} 回目）。間を置いて確かめ直す"
+            sleep $((attempt * 15))
+          done
+          exit 1
+
+      - name: Build admin SPA
+        run: npm run build

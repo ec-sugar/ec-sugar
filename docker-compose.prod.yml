@@ -1,0 +1,475 @@
+# EC-SUGAR 本番とステージングの形（ADR 0006・0015・0029・0031）
+#
+# 本番とステージングで同じもの。違いは env ファイルだけ（項目と説明は deploy/production.env.example）。
+# 設定はサーバーの 1 つの env ファイル（例 /srv/ec-sugar/env/.env.production。持ち主だけ読める）を --env-file で渡す。
+# この中に道筋を決め打ちしない（env ファイルの EC_SUGAR_ENV_FILE・EC_SUGAR_CADDY_SECRETS で渡す）:
+#
+#   docker compose -f docker-compose.prod.yml --env-file /srv/ec-sugar/env/.env.production up -d
+#   ステージング（届いたメールを Mailpit で受ける）: 上に --profile staging を足す
+#
+# 移行は compose の外から 1 回だけ流す（app の起動のたびには流さない。インストーラーと更新の手順が呼ぶ）:
+#   docker compose … run --rm app php artisan migrate --force
+#   docker compose … run --rm app php artisan tenants:migrate --force
+#
+# 入口は 2 段（ADR 0031）:
+#   インターネット → caddy（80・443 番。https を受け、証明書を取り・取り直す）→ web（nginx。内側の網の http。今までの守り）→ app（PHP、FastCGI）
+#   接続元の住所: caddy は外から来た X-Forwarded-For を捨てて自分が見た住所を付け、nginx はそれを caddy の住所（EC_SUGAR_CADDY_ADDR）からだけ信じる。
+#   PHP へは nginx が本当の接続元を REMOTE_ADDR で渡し、代理の見出しは渡さない（Laravel の TRUSTED_PROXIES は空のまま）
+#
+# データの置き場（名前つきの置き場。前の「<プロジェクト>_」は -p の名前。インストーラーは ec-sugar。バックアップのスクリプトはこの名前で探す）:
+#   …_db          PostgreSQL のデータ（中央 DB と店ごとの DB）
+#   …_storage     storage/（写真・ログ。店ごとの区画もこの下）
+#   …_redis       Redis の追記の記録（キューの仕事とセッションを再起動で失わない）
+#   …_caddy_data  証明書と ACME のアカウントの鍵（caddy にだけ差し込む。消すと取り直しになり、Let's Encrypt の回数の上限に触れうる）
+#
+# 守り（機械の確かめは docker/check-compose.sh。CI の image の仕事で毎回走る）:
+#   - どのコンテナも根のファイルシステムは読み取り専用・cap_drop ALL・no-new-privileges。書けるのは名前つきの置き場と tmpfs（メモリの上の使い捨ての置き場）だけ
+#   - 外へ出すのは入口（caddy）の 80・443 番だけで、住所は EC_SUGAR_BIND（未設定なら起動しない。0.0.0.0 に倒れない）。
+#     nginx（web）・PHP（app）・db・redis はポートを出さない。db と redis は外に出られない内側の網だけ
+#   - app・queue・scheduler は同じイメージ（印つきで外から渡す。ここではイメージを作らない）。ほかのイメージはバージョンを固定する（latest を使わない）。
+#     caddy だけはここで作る（docker/caddy/Dockerfile。土台は digest で固定、札は Caddy と部品のバージョン）
+#   - APP_ENV と APP_DEBUG はここで決め打ちする（env ファイルに APP_DEBUG=true が混ざっても本番で true にならない）
+#   - アプリから外への https は出口の代理（egress）を通る（ADR 0102）。許す一覧に無い宛先は、見張りの形（既定）では記録だけ、
+#     止める形（EC_SUGAR_EGRESS_MODE=enforce。ec-sugar が docker-compose.egress.yml を重ねる）では断り、アプリから外へ直に出る道も外す
+#
+# env の名前（ADR 0030 の「作って決めたこと」）: 項目は EC_SUGAR_…。前の名前 SUGAR_EC_… は「両方を書いて移す」間だけ、
+# ${SUGAR_EC_X:-${EC_SUGAR_X…}} の形で先に読む（サーバーに入っている前のバージョンの道具は、更新の途中でも前の名前だけを書くため。
+# 新しいバージョンの道具は両方に同じ値を書く。新しく入れたサーバーの env には新しい名前だけ）。前の名前は公開の前に消す（backlog）。
+# コンテナの中の名前（Caddy・nginx の雛形が読む）は新しい名前だけ。
+# 入れ子の内側に必須の確かめ（:?）を置かない: compose 2.40 系（Ubuntu の部品）は、外側に値があっても内側の :? を確かめて止まる（5.x は止まらない）。
+# 必須の項目が無いときは ec-sugar（deploy/lib/common.sh の ec_dc）が compose を呼ぶ前に、足りない名前を出して止める。
+# 受け口の住所だけは compose の中でも止める（空だとポートが全部の住所に出るので、IP でない印を既定にして「invalid IP address」で止める）
+
+# インストーラーの -p と同じ名前（手で docker compose を流しても、インストーラーが立てたものと同じものを指す）
+name: ec-sugar
+
+x-logging: &logging
+  # Docker の記録の既定は上限が無く、ディスクを埋める。1 コンテナ 50MB まで
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# app・queue・scheduler の共通（同じイメージを同じ守りで動かす）
+x-php: &php
+  image: ${SUGAR_EC_IMAGE:-${EC_SUGAR_IMAGE:-}}
+  user: www-data
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  logging: *logging
+  env_file:
+    - path: ${SUGAR_EC_ENV_FILE:-${EC_SUGAR_ENV_FILE:-}}
+      required: true
+  environment:
+    APP_ENV: production
+    APP_DEBUG: "false"
+    # DB の管理者（superuser）の合言葉はアプリに持たせない（店ごとの DB の分離は DB の権限で守る。CLAUDE.md の約束 3）。
+    # env ファイルは 1 つなので、アプリに渡る分だけここで空にする。前の名前（SUGAR_EC_…）の行が残っている間はそれも空にする
+    EC_SUGAR_DB_SUPERUSER_PASSWORD: ""
+    SUGAR_EC_DB_SUPERUSER_PASSWORD: ""
+    # 証明書を取ってよいかを聞く経路の印（RequireTlsAskEntry）は nginx の内側のポートだけが FastCGI で付ける。
+    # php-fpm は環境変数も $_SERVER に入れる（clear_env = no）ので、env ファイルに書かれても効かないようにここで空にする
+    EC_SUGAR_TLS_ASK: ""
+    # 外への https は出口の代理（egress）を通す（ADR 0102）。Laravel の Http（Guzzle）も Stripe の部品（libcurl）も HTTPS_PROXY を読む。
+    # 代理を使わない形（EC_SUGAR_EGRESS_MODE=off）では ec-sugar（ec_dc）が EC_SUGAR_EGRESS_PROXY_URL を空にして渡す
+    HTTPS_PROXY: ${EC_SUGAR_EGRESS_PROXY_URL-http://egress:3128}
+    NO_PROXY: localhost,127.0.0.1
+    # アプリが自分で代理を決める所（写真の取り込み）と運営の様子が読む印。HTTPS_PROXY と別にする（開発機の HTTPS_PROXY を代理と取り違えない）
+    EC_SUGAR_EGRESS_PROXY: ${EC_SUGAR_EGRESS_PROXY_URL-http://egress:3128}
+    # 外の見張りの合い言葉は nginx（web）だけが使う。env ファイルは 1 つなので、アプリに渡る分はここで空にする
+    EC_SUGAR_SENTINEL_TOKEN: ""
+  volumes:
+    - storage:/var/www/html/storage
+    # 代理の数（この 24 時間に通した・断った数）。読むだけ（運営の様子と知らせ。App\Admin\Services\EgressWatch）
+    - egress_state:/run/ec-sugar-egress:ro
+  # 書く所（書き込みの境界）: storage/ は上の名前つきの置き場（全コンテナで共有）。次はコンテナごとの tmpfs（起動のたびに空から）:
+  #   - /tmp: アップロードの途中のファイル・CSV の取り込みで取りに行った写真（1 枚ずつ、使ったら消す）。写真の ZIP（90MB まで）が入る大きさに。
+  #     tmpfs はメモリの上だが、使った分だけ取る（ふだんは空）
+  #   - bootstrap/cache: Laravel の起動の控え（packages.php・services.php）。イメージの中身から作り直す
+  #   - storage/framework/views: 画面の下書き（Blade を PHP にしたもの）。名前つきの置き場に残すと、前のバージョンのイメージへ戻したとき
+  #     新しいバージョンの下書きが「元のファイルより新しい」ので使われ続ける。イメージごとに作り直す
+  # uid・gid 82 はイメージの www-data。PHP は読み込むだけなので noexec（実行の禁止）でよい
+  tmpfs:
+    - /tmp:size=256m,mode=1777,noexec,nosuid,nodev
+    - /var/www/html/bootstrap/cache:size=16m,uid=82,gid=82,mode=0755,noexec,nosuid,nodev
+    - /var/www/html/storage/framework/views:size=64m,uid=82,gid=82,mode=0755,noexec,nosuid,nodev
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    # 出口の代理が受けられるようになってから起こす（起きた直後の外への https が代理の起きる前に落ちないように）
+    egress:
+      condition: service_healthy
+
+services:
+  # PHP の処理（php-fpm）。外から直には届かない。入口（web）からだけ。
+  # FastCGI は TCP で受けず、web と分け合う置き場（fpm。メモリの上）の Unix ソケットだけで受ける（docker/php/www.conf の EC_SUGAR_FPM_LISTEN。
+  # www.conf の既定も同じソケット。ここでも決め打ちして、既定が変わっても TCP に倒れないようにする）。
+  # 9000 番を網に出すと、同じサーバーの root でない利用者が app の住所へ FastCGI を直に送り、REMOTE_ADDR を偽ったり、
+  # PHP_VALUE で好きな PHP を動かせたりする恐れがあった（3 回目の見直し。ホストの利用者は /var/lib/docker の下に入れない）
+  app:
+    <<: *php
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      EC_SUGAR_DB_SUPERUSER_PASSWORD: ""
+      SUGAR_EC_DB_SUPERUSER_PASSWORD: ""
+      EC_SUGAR_TLS_ASK: ""
+      EC_SUGAR_SENTINEL_TOKEN: ""
+      EC_SUGAR_FPM_LISTEN: /run/php-fpm/fpm.sock
+      HTTPS_PROXY: ${EC_SUGAR_EGRESS_PROXY_URL-http://egress:3128}
+      NO_PROXY: localhost,127.0.0.1
+      EC_SUGAR_EGRESS_PROXY: ${EC_SUGAR_EGRESS_PROXY_URL-http://egress:3128}
+    volumes:
+      - storage:/var/www/html/storage
+      - fpm:/run/php-fpm
+      - egress_state:/run/ec-sugar-egress:ro
+    # egress_in は出口の代理への網（外へ出られない）。edge から外へ直に出る道は、止める形（docker-compose.egress.yml）で外す
+    networks: [internal, edge, egress_in]
+    healthcheck:
+      # php-fpm がソケットで受け付けているか（fsockopen は disable_functions の外）
+      test: ["CMD", "php", "-r", "exit(@fsockopen('unix:///run/php-fpm/fpm.sock') ? 0 : 1);"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # キューの処理。キューは店の名札の付かない専用の接続 queue（config/queue.php の redis → config/database.php の redis.queue）。
+  # env ファイルの REDIS_QUEUE_CONNECTION を default・cache にすると起動で止まる。
+  # 1 時間ごとに自分で終わって起こし直される（restart。記憶の膨らみを持ち越さない）。止まるときは処理中の仕事を終えるまで待つ
+  queue:
+    <<: *php
+    command: ["php", "artisan", "queue:work", "redis", "--tries=3", "--timeout=75", "--sleep=1", "--max-time=3600"]
+    stop_grace_period: 90s
+    networks: [internal, egress, egress_in]
+    healthcheck: &redis-reachable
+      # 仕事の置き場（Redis）に届くか。合言葉は環境変数から読み、コマンドの引数に出さない
+      test: ["CMD", "php", "-r", "$$r = new Redis(); $$r->connect(getenv('REDIS_HOST'), (int) getenv('REDIS_PORT')); $$p = (string) getenv('REDIS_PASSWORD'); if ($$p !== '' && $$p !== 'null') { $$r->auth($$p); } exit($$r->ping() ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 定期の処理（Laravel のスケジューラ。古いカートの片付け・返金の確かめ直しなど）
+  scheduler:
+    <<: *php
+    command: ["php", "artisan", "schedule:work"]
+    networks: [internal, egress, egress_in]
+    healthcheck: *redis-reachable
+
+  # 外への通信の出口の代理（ADR 0102。docker/egress/proxy.php）。アプリと同じイメージの PHP で動かすが、env ファイルを渡さない（秘密を持たない）。
+  # https は CONNECT で名前とポート 443 だけを見て、許す一覧（docker/egress/allow.txt と env の EC_SUGAR_EGRESS_ALLOW）に無いものを
+  #   見張りの形（EC_SUGAR_EGRESS_MODE=watch。既定）: 通して記録する
+  #   止める形（enforce）: 断って記録する。アプリの網からも外へ直に出る道を外す（ec-sugar が docker-compose.egress.yml を重ねる）
+  # 内向きの住所（LAN・ホスト・ほかのコンテナ）へは、どちらの形でも通さない。メールは MAIL_HOST:MAIL_PORT へだけ中継する（止める形で使う）。
+  # 数はこの 24 時間の分を egress_state に書き、アプリが運営の様子に出す。記録は名前・ポート・決めたことだけ（中身は暗号のまま見ない）
+  egress:
+    image: ${SUGAR_EC_IMAGE:-${EC_SUGAR_IMAGE:-}}
+    user: www-data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # メールの送り口の中継は MAIL_PORT（465・587・25 など）で受ける。権限を持たずに 25 番から受けられるのは、このコンテナの網の中だけの決まり
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 25
+    restart: unless-stopped
+    # 止める合図の後、途中の接続（Stripe への要求など）が終わるのを最大 80 秒待つ（proxy.php の DRAIN_SECONDS）。更新のたびに作り直されるため
+    stop_grace_period: 90s
+    # アプリのイメージの止める合図は SIGQUIT（php-fpm 向け）。代理は SIGTERM で受け口を閉じて待つ（SIGQUIT でも同じ）
+    stop_signal: SIGTERM
+    logging: *logging
+    command: ["php", "/etc/ec-sugar-egress/proxy.php"]
+    environment:
+      EC_SUGAR_EGRESS_MODE: ${EC_SUGAR_EGRESS_MODE:-watch}
+      EC_SUGAR_EGRESS_ALLOW: ${EC_SUGAR_EGRESS_ALLOW:-}
+      # 内向きの住所へ引けても通す名前（確かめの台本の偽の宛先だけ。本番では空）
+      EC_SUGAR_EGRESS_INTERNAL_OK: ${EC_SUGAR_EGRESS_INTERNAL_OK:-}
+      EC_SUGAR_EGRESS_SMTP_HOST: ${MAIL_HOST:-}
+      EC_SUGAR_EGRESS_SMTP_PORT: ${MAIL_PORT:-}
+    volumes:
+      # 代理の台本と許す一覧（compose の置き場から読み取り専用で。公開版の形では root だけが書ける置き場）
+      - ./docker/egress:/etc/ec-sugar-egress:ro
+      - egress_state:/run/ec-sugar-egress
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    networks:
+      egress_in:
+        # 止める形でアプリが MAIL_HOST をこの住所に引く（extra_hosts）。自動で配る範囲の外
+        ipv4_address: ${EC_SUGAR_EGRESS_ADDR:-172.30.255.194}
+      egress: {}
+    healthcheck:
+      # /healthz に 200 が返るか（CONNECT でない要求は数えない）
+      test: ["CMD", "php", "-r", "$$s = @fsockopen('127.0.0.1', 3128, $$e, $$m, 2); if (! $$s) { exit(1); } fwrite($$s, \"GET /healthz HTTP/1.0\\r\\n\\r\\n\"); exit(str_starts_with((string) fgets($$s), 'HTTP/1.1 200') ? 0 : 1);"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+
+  # 入口（前の段）。80・443 番を受け、https の証明書を取り・取り直す（ADR 0031）。後ろの nginx（web）へ内側の網の http で渡す。
+  # 店のホストの証明書は初めて来たときにその場で取り、取る前に web の内側のポート（8081）で EC-SUGAR に聞く。設定は docker/caddy/etc/Caddyfile
+  caddy:
+    image: ec-sugar-caddy:2.11.7-cf0.2.4-r2
+    # このイメージだけはサーバーで作る（公式の Caddy に Cloudflare の DNS の部品を足す。土台は digest で固定）。札は Dockerfile のバージョンとそろえる
+    build:
+      context: ./docker/caddy
+    # 利用者 65532（root でない）。権限は持たず、80・443 番はこのコンテナの網の中だけの決まりで受ける
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 80
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      # 受け口の住所は EC_SUGAR_BIND だけ。証明書を取る確かめ（Let's Encrypt）は外の 80・443 番に来るので、ポートの番号は普段は既定のまま
+      - "${SUGAR_EC_BIND:-${EC_SUGAR_BIND:-EC_SUGAR_BIND（受け口の住所）をenvファイルに書く}}:${SUGAR_EC_HTTPS_PORT:-${EC_SUGAR_HTTPS_PORT:-443}}:443"
+      - "${SUGAR_EC_BIND:-${EC_SUGAR_BIND:-EC_SUGAR_BIND（受け口の住所）をenvファイルに書く}}:${SUGAR_EC_HTTP_PORT:-${EC_SUGAR_HTTP_PORT:-80}}:80"
+    environment:
+      EC_SUGAR_ADMIN_HOST: ${SUGAR_EC_ADMIN_HOST:-${EC_SUGAR_ADMIN_HOST:-}}
+      EC_SUGAR_SHOP_DOMAIN: ${SUGAR_EC_SHOP_DOMAIN:-${EC_SUGAR_SHOP_DOMAIN:-}}
+      # 店の数の形（single は 1 店舗・既定、multi は複数の店）と、ショップの場所の名前（single はショップのホスト、multi は *.<ショップのドメイン>）
+      EC_SUGAR_SHOPS: ${SUGAR_EC_SHOPS:-${EC_SUGAR_SHOPS:-single}}
+      EC_SUGAR_SITE_SHOP: ${SUGAR_EC_SITE_SHOP:-${EC_SUGAR_SITE_SHOP:-}}
+      # 証明書の取り方: auto（既定。Let's Encrypt、店のホストはその場で）・dns（Cloudflare の DNS の鍵で）・manual（手で用意したもの）
+      EC_SUGAR_TLS_MODE: ${SUGAR_EC_TLS_MODE:-${EC_SUGAR_TLS_MODE:-auto}}
+      # ACME の取り先とその根。試験で Pebble に向けるときだけ替える（本番は既定のまま）
+      EC_SUGAR_ACME_CA: ${SUGAR_EC_ACME_CA:-${EC_SUGAR_ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}}
+      EC_SUGAR_ACME_CA_ROOT: ${SUGAR_EC_ACME_CA_ROOT:-${EC_SUGAR_ACME_CA_ROOT:-/etc/ssl/certs/ca-certificates.crt}}
+      # 動かすバージョン。バージョンを替えるたびに caddy も作り直し、取り出したバージョンの Caddyfile を読み直す（証明書は置き場に残るので取り直さない）
+      EC_SUGAR_RELEASE: ${SUGAR_EC_IMAGE:-${EC_SUGAR_IMAGE:-}}
+    volumes:
+      - ./docker/caddy/etc:/etc/caddy:ro
+      # 証明書と ACME のアカウントの鍵（caddy だけ。web・app には差し込まない）
+      - caddy_data:/data
+      # 秘密（DNS の API の鍵・手で用意した証明書と秘密の鍵）。ホストの root だけの置き場で、ファイルは caddy の利用者だけが読める 0400
+      - ${SUGAR_EC_CADDY_SECRETS:-${EC_SUGAR_CADDY_SECRETS:-}}:/run/secrets/ec-sugar:ro
+    tmpfs:
+      - /config:size=1m,uid=65532,gid=65532,mode=0700,noexec,nosuid,nodev
+      - /tmp:size=16m,uid=65532,gid=65532,mode=0700,noexec,nosuid,nodev
+    networks:
+      front:
+        # nginx が「本当の接続元」の見出しと、証明書を取る前の問い合わせを受けるのは、この住所からだけ
+        ipv4_address: ${SUGAR_EC_CADDY_ADDR:-${EC_SUGAR_CADDY_ADDR:-172.30.255.226}}
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8079/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 入口（後ろの段）。caddy から http で受け、PHP は index.php だけを app へ渡す。静的なファイル（public/）は同じイメージから読み取り専用で借りる。
+  # ポートは出さない（caddy の網 front と app の網 edge にだけいる）
+  web:
+    image: nginx:1.30.7-alpine@sha256:caf4e1e032a20f9c3c5e28fc7f25ffd768ad8677b4975c54193075997b3a97e3
+    # nginx の利用者（uid 101）で動かす。中では 8080（caddy から渡る要求）と 8081（caddy が証明書を取る前に聞く内側の口）で受ける
+    user: "101:101"
+    # php-fpm のソケット（www-data・gid 82、0660）につなぐためのグループ
+    group_add: ["82"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      # nginx の起動のスクリプトが置き換える変数を EC_SUGAR_ で始まるものだけに絞る（$host などの nginx の変数を壊さない）
+      NGINX_ENVSUBST_FILTER: "^EC_SUGAR_"
+      EC_SUGAR_ADMIN_HOST: ${SUGAR_EC_ADMIN_HOST:-${EC_SUGAR_ADMIN_HOST:-}}
+      EC_SUGAR_SHOP_DOMAIN: ${SUGAR_EC_SHOP_DOMAIN:-${EC_SUGAR_SHOP_DOMAIN:-}}
+      EC_SUGAR_HSTS_MAX_AGE: ${SUGAR_EC_HSTS_MAX_AGE:-${EC_SUGAR_HSTS_MAX_AGE:-}}
+      # nginx が受ける名前（single は管理画面とショップのホストの 2 つちょうど、multi は管理画面と *.<ショップのドメイン>。空白で区切る）
+      EC_SUGAR_SERVER_NAMES: ${SUGAR_EC_SERVER_NAMES:-${EC_SUGAR_SERVER_NAMES:-}}
+      # caddy の住所（上の caddy の ipv4_address と同じ値）。内側の口（8081）はこの住所からだけ受ける
+      EC_SUGAR_CADDY_ADDR: ${SUGAR_EC_CADDY_ADDR:-${EC_SUGAR_CADDY_ADDR:-172.30.255.226}}
+      # 外の見張りの合い言葉（sudo ec-sugar integrity token が env ファイルに書く 32 桁の 16 進。ADR 0105）。見出し X-EC-Sugar-Sentinel が
+      # これと合う取得だけを「外の見張りが来た」に数える。生存の確かめにしか使わない値なので、読み取り専用の web の環境変数で渡してよい。空なら数えない
+      EC_SUGAR_SENTINEL_TOKEN: ${EC_SUGAR_SENTINEL_TOKEN:-}
+    volumes:
+      - ./docker/nginx/prod.conf:/etc/nginx/templates/ec-sugar.conf.template:ro
+      # 外の口と、接続元の見出しを信じる相手（この形は Caddy の後ろ。すでにある Web サーバーの後ろに置く形は docker-compose.proxy.yml で替える）
+      - ./docker/nginx/front-caddy.inc:/etc/nginx/templates/front.inc.template:ro
+      # php-fpm のソケット（app と分け合う。web は読み取り専用で差し込み、つなぐだけ）
+      - fpm:/run/php-fpm:ro
+      # 同じイメージの public/（ビルドした画面の資材を含む）を読み取り専用で借りる。イメージを差し替えると一緒に替わる
+      - type: image
+        source: ${SUGAR_EC_IMAGE:-${EC_SUGAR_IMAGE:-}}
+        target: /var/www/html/public
+        image:
+          subpath: var/www/html/public
+      # 中の照らしの様子（ADR 0105）。ホストの root が毎分書いて署名した integrity.json と .sig の置き場を、読み取り専用で。
+      # nginx がどのホストでも /.well-known/ec-sugar/ で返す。署名の鍵と控え（/srv/ec-sugar/trust/integrity）は、どのコンテナにも差し込まない。
+      # 道筋は deploy/lib/common.sh の EC_INTEGRITY_PUBLIC と同じ（docker/check-compose.sh が見る）。無ければ Docker が空の置き場を作る（照らしが書くまで 404）
+      - /var/lib/ec-sugar/integrity:/usr/share/ec-sugar/integrity:ro
+    tmpfs:
+      # 置き換えた設定の書き先・一時ファイル・pid。uid 101 は nginx。/var/cache/nginx には受けた本文の一時のファイルも入る（写真の ZIP の経路は 100m まで）
+      - /etc/nginx/conf.d:size=1m,uid=101,gid=101,mode=0755,noexec,nosuid,nodev
+      - /var/cache/nginx:size=256m,uid=101,gid=101,mode=0700,noexec,nosuid,nodev
+      - /run:size=1m,uid=101,gid=101,mode=0755,noexec,nosuid,nodev
+      - /tmp:size=16m,uid=101,gid=101,mode=0700,noexec,nosuid,nodev
+      # 外の見張りが中の照らしの様子を取りに来た時刻だけの記録（ホストの ec-sugar integrity check が毎分見て空にする。ホストへは書かない）
+      - /var/log/ec-sugar-integrity:size=1m,uid=101,gid=101,mode=0700,noexec,nosuid,nodev
+    networks: [front, edge]
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  db:
+    image: postgres:17.11-alpine
+    # postgres の利用者（uid 70）で動かす。データの置き場は初回にイメージから postgres の持ち物で作られる
+    user: postgres
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging: *logging
+    shm_size: 128m
+    environment:
+      POSTGRES_DB: ec_central
+      POSTGRES_USER: ec
+      # 管理者（superuser）の合言葉。アプリには渡さない（x-php で空にしている）
+      POSTGRES_PASSWORD: ${SUGAR_EC_DB_SUPERUSER_PASSWORD:-${EC_SUGAR_DB_SUPERUSER_PASSWORD:-}}
+      # アプリのロール ec_app の合言葉（docker/db/init/00-app-role.sh が初回に使う）
+      EC_APP_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD（アプリのロールの合言葉）を env ファイルに書く}
+    volumes:
+      - db:/var/lib/postgresql/data
+      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
+    tmpfs:
+      - /var/run/postgresql:size=1m,uid=70,gid=70,mode=0775,nosuid,nodev
+      - /tmp:size=64m,uid=70,gid=70,mode=0700,noexec,nosuid,nodev
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ec -d ec_central"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4.12-alpine
+    user: redis
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD（Redis の合言葉）を env ファイルに書く}
+    # 合言葉はコマンドの引数に出さない（ps で見える）。tmpfs の設定ファイルに書いて読ませる。
+    # 追記の記録（appendonly）を残し、再起動でキューの仕事とセッションを失わない。外から使われると困る命令は消す
+    command:
+      - sh
+      - -c
+      - >-
+        umask 077 &&
+        printf 'requirepass "%s"\n' "$$REDIS_PASSWORD" > /tmp/redis.conf &&
+        exec redis-server /tmp/redis.conf
+        --appendonly yes --save ''
+        --rename-command CONFIG '' --rename-command DEBUG '' --rename-command MODULE ''
+        --rename-command REPLICAOF '' --rename-command SLAVEOF '' --rename-command FLUSHALL ''
+    volumes:
+      - redis:/data
+    tmpfs:
+      - /tmp:size=1m,uid=999,gid=1000,mode=0700,noexec,nosuid,nodev
+    networks: [internal]
+    healthcheck:
+      # 合言葉は REDISCLI_AUTH で渡す（引数に出さない）
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ステージングだけ: 送ったメールを外へ出さずに受ける（--profile staging）。本番は env ファイルの MAIL_* の外部の送信サービスへ
+  # 見る画面は VM の中の 127.0.0.1 だけ（SSH のポートの転送で見る）。127.0.0.1 にはホストのどの利用者からも届くので、画面と API は
+  # Basic 認証（利用者 ec-sugar、パスワードはインストーラーが作って root だけが読むファイルに置く）。
+  # Mailpit に渡すのはハッシュのファイルだけ（パスワードを環境変数 MP_UI_AUTH で渡さない。docker inspect に出る）。
+  # ファイルが無ければ Mailpit は起きない（ホストに置き場を作らせない: create_host_path: false）
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    profiles: [staging]
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_MAX_MESSAGES: "2000"
+      MP_UI_AUTH_FILE: /run/secrets/mailpit/ui.htpasswd
+    volumes:
+      - type: bind
+        source: ${SUGAR_EC_MAILPIT_SECRETS:-${EC_SUGAR_MAILPIT_SECRETS:-/srv/ec-sugar/secrets/mailpit}}
+        target: /run/secrets/mailpit
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${SUGAR_EC_MAIL_UI_PORT:-${EC_SUGAR_MAIL_UI_PORT:-8025}}:8025"
+    tmpfs:
+      - /tmp:size=16m,uid=1000,gid=1000,mode=0700,noexec,nosuid,nodev
+    # internal は app・queue からの送信、edge は見る画面のポートを出すため（内側だけの網ではポートを出せない）
+    networks: [internal, edge]
+
+networks:
+  # db・redis・PHP の内側の網。外へ出られない。
+  # ホストの root でない利用者からこの網（とほかの網）のコンテナへ直に届かないようにするのは、ホストの防火壁（ec-sugar firewall。
+  # OUTPUT の鎖で、この compose の網の bridge へ出る、root でない利用者が始めた接続を断る。IPv4 と IPv6。コンテナから始めた接続の返りは通す）。網の作り方の値（driver_opts）を変えると、
+  # 動いているサーバーで網を作り直せず更新が止まる（使い捨ての Ubuntu で確かめた）ので、網には足さない
+  internal:
+    internal: true
+  # 入口の前の網（caddy と web）。caddy がポートを出すのと、外（Let's Encrypt・DNS の API）へ出るため。
+  # 住所の範囲を決めて caddy の住所を固定する（nginx が信じる住所）。ほかの網と重なるときは env ファイルで 3 つをそろえて替える。
+  # 自動で配る住所（web など）は後ろ半分（ip_range）だけにし、caddy の住所（前半）を先に起きたコンテナに取られないようにする
+  front:
+    ipam:
+      config:
+        - subnet: ${SUGAR_EC_FRONT_SUBNET:-${EC_SUGAR_FRONT_SUBNET:-172.30.255.224/28}}
+          ip_range: ${SUGAR_EC_FRONT_RANGE:-${EC_SUGAR_FRONT_RANGE:-172.30.255.232/29}}
+          # gateway（ホストの側の住所）も決める。後ろに置く形では、ホストの 127.0.0.1 から来た接続がこの住所から来たように見える
+          gateway: ${SUGAR_EC_FRONT_GATEWAY:-${EC_SUGAR_FRONT_GATEWAY:-172.30.255.225}}
+  # 入口の後ろの網（web と app）。app が外（Stripe など）へ出るため
+  edge: {}
+  # queue と scheduler が外（Stripe・メールの送信サービスなど）へ出るための網。入口とは分ける。出口の代理（egress）もこの網から外へ出る。
+  # 止める形（docker-compose.egress.yml）では、ここにいるのは代理だけになる
+  egress: {}
+  # アプリ（app・queue・scheduler）と出口の代理（egress）だけの網。外へ出られない（ADR 0102）。
+  # 代理の住所を固定する（止める形で MAIL_HOST をこの住所に向ける）。自動で配る住所は後ろ半分（ip_range）だけ。ほかの網と重なるときは env ファイルで 4 つをそろえて替える。
+  # 前からある網（internal・edge・egress）の設定は変えない（網の作り方を変えると、動いているサーバーで網を作り直せず更新が止まる）
+  egress_in:
+    internal: true
+    # ホストの側に住所を持たせない（Docker 28 から）。外へ出られない網でも、ふつうは bridge の住所でホストの待ち受け（SSH など）へ届く
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    ipam:
+      config:
+        - subnet: ${EC_SUGAR_EGRESS_SUBNET:-172.30.255.192/28}
+          ip_range: ${EC_SUGAR_EGRESS_RANGE:-172.30.255.200/29}
+          gateway: ${EC_SUGAR_EGRESS_GATEWAY:-172.30.255.193}
+
+volumes:
+  db:
+  storage:
+  redis:
+  caddy_data:
+  # php-fpm のソケットの置き場（app と web だけが差し込む）。ディスクに書かずメモリの上（tmpfs）、持ち主は www-data（82）、0750
+  fpm:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=82,gid=82,mode=0750,size=1m,noexec,nosuid,nodev"
+  # 出口の代理の数（state.json）。メモリの上、持ち主は www-data（82）。代理だけが書き、app・queue・scheduler は読み取り専用で差し込む
+  egress_state:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "uid=82,gid=82,mode=0755,size=1m,noexec,nosuid,nodev"

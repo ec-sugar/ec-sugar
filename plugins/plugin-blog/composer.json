@@ -1,0 +1,75 @@
+{
+    "name": "ec-sugar/plugin-blog",
+    "description": "EC-SUGAR 公式の App: お知らせ・ブログ（ショップの /news に記事を出す。商品の説明と同じブロックで書き、下書き・公開・予約公開。検索と共有の見え方・サイトマップ・Atom・新着のお知らせのセクション。ADR 0072）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginBlog\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginBlog\\BlogServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "blog",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "sections": {
+                "app_blog": {
+                    "label": "新着のお知らせ",
+                    "patterns": {
+                        "list": {
+                            "label": "日付とタイトルの一覧",
+                            "wireframe": "categories-links"
+                        },
+                        "cards": {
+                            "label": "写真つきのカード",
+                            "wireframe": "features-three"
+                        }
+                    },
+                    "fields": {
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "count": {
+                            "type": "choice",
+                            "label": "表示する数",
+                            "options": {
+                                "n3": "3 件",
+                                "n5": "5 件",
+                                "n10": "10 件"
+                            }
+                        },
+                        "category": {
+                            "type": "text",
+                            "label": "種類で絞る",
+                            "max": 20,
+                            "help": "種類の名前（例: お知らせ）を入れると、その種類の記事だけを表示します。空ならすべての種類を表示します"
+                        }
+                    },
+                    "example": {
+                        "heading": "お知らせ",
+                        "count": "n3"
+                    }
+                }
+            }
+        }
+    }
+}

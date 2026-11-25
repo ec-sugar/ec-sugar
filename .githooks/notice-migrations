@@ -1,0 +1,10 @@
+#!/bin/sh
+# 移行のファイルが増えた・変わったら、開発の DB に流すよう知らせる（git の取り込み・切り替え・コミットの後）。
+# 開発の環境は git でバージョンを上げるだけで、VM のように更新のたびに移行しない。流し忘れると画面が 500 になる（2026-10-29）
+# $1 = 前のバージョン、$2 = 今のバージョン
+[ -n "$1" ] && [ -n "$2" ] || exit 0
+changed=$(git diff --name-only "$1" "$2" -- database/migrations 2>/dev/null | head -5)
+[ -n "$changed" ] || exit 0
+printf '\n\033[33m注意\033[0m 移行が増えています。開発の DB に流してください: make migrate\n'
+printf '%s\n' "$changed" | sed 's/^/  /'
+exit 0

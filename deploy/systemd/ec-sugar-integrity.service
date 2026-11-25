@@ -1,0 +1,14 @@
+# 中の照らし（ADR 0105）。動いているコンテナとイメージ ID・compose と入口の設定・unit・運用の道具を、あるべき姿の控え
+# （/srv/ec-sugar/trust/integrity/expected。root だけ）と照らし、Ed25519 で署名した様子（integrity.json と .sig）を書く。
+# nginx がどのホストでも /.well-known/ec-sugar/ で返し、外の見張り（ec-sugar-sentinel）が取りに来て確かめる。
+# 更新などが鍵を持っている間は照らさず、様子に busy を付けて署名だけ新しくする。違いと「外の見張りが来ていない」は運営の様子とメールにも出す
+[Unit]
+Description=EC-SUGAR integrity check
+Requires=docker.service
+After=docker.service ec-sugar.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar integrity check
+TimeoutStartSec=120
+Nice=5

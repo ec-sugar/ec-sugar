@@ -1,0 +1,141 @@
+/*
+ * 核が持つショップの動き（ADR 0028 の 4「動きの部品も核が持つ」・ADR 0037）。テーマは CSS と data- の印で選ぶだけで、JS を書かない。
+ *
+ * - 強さはテーマの theme.json の motion（none・subtle・rich）。外枠が <html data-motion="…"> に出し、ここと motion.js が読む
+ * - 下の変数（--motion-*）はテーマが上書きしてよい。テーマの CSS で、層（@layer）の外に :root[data-motion] { --motion-duration: 180ms; } のように書く
+ *   （ここは :where() で強さ 0 にしてあるので、層の外に書けばテーマが勝つ。Tailwind の @theme の中は層の中なので効かない）
+ * - 動かすのは transform と opacity だけ（並びがずれない。CLS＝読み込み中のずれ を出さない）
+ * - 中身を隠すのは「JS が付けた印（data-motion-ready）がある時の、まだ見えていない所」だけ。JS が動かない・遅い時は最初から見える
+ * - 端末の「視差効果を減らす」（prefers-reduced-motion: reduce）では動かさない。動きの規則はすべて no-preference の中に置き、下で念を押して止める
+ * - 支払い・注文の入力と確認の画面には印を置かない（個人情報の画面に余計な動きを足さない）
+ */
+
+/* 強さごとの値（はじめは subtle＝控えめ: 押した・開いた・変わった時だけ 0.15〜0.3 秒、動きは数 px） */
+:where(:root) {
+    --motion-duration: 200ms; /* 値が変わった・メニューを開け閉めした時 */
+    --motion-nudge: 3px; /* 値が変わった・メニューの時に動く量 */
+    --motion-distance: 4px; /* ページを開いた時・浮かぶ時に動く量 */
+    --motion-ease: cubic-bezier(.2, .7, .2, 1);
+    --motion-press-scale: .98; /* 「カートに入れる」を押している間 */
+    --motion-pop-scale: 1.15; /* カートの数が変わった時 */
+    --motion-hover-scale: 1.02; /* 商品の札に指を乗せた時の写真 */
+    --motion-hover-duration: 300ms;
+    --motion-intro-duration: 300ms; /* ページを開いた時の見出し */
+    --motion-intro-opacity: .35; /* 見出しの出始めの濃さ（0 にしない。読めない時間を作らない） */
+    --motion-zoom-from: 1; /* ページを開いた時の写真（rich だけ） */
+    --motion-zoom-duration: 0ms;
+    --motion-reveal-duration: 0ms; /* スクロールで浮かぶ（rich だけ） */
+    --motion-stagger: 0ms; /* 続けて浮かぶ間 */
+}
+
+/* rich＝しっかり: スクロールで商品の札が順に浮かぶ・写真のゆっくりした拡大まで。速さより落ち着きを優先し、跳ねさせない */
+:where(:root[data-motion="rich"]) {
+    --motion-duration: 320ms;
+    --motion-nudge: 6px;
+    --motion-distance: 16px;
+    --motion-ease: cubic-bezier(.16, 1, .3, 1);
+    --motion-pop-scale: 1.3;
+    --motion-hover-scale: 1.05;
+    --motion-hover-duration: 900ms;
+    --motion-intro-duration: 900ms;
+    --motion-intro-opacity: .2;
+    --motion-zoom-from: 1.08;
+    --motion-zoom-duration: 2400ms;
+    --motion-reveal-duration: 700ms;
+    --motion-stagger: 80ms;
+}
+
+@keyframes sugar-motion-intro {
+    from {
+        opacity: var(--motion-intro-opacity);
+        transform: translateY(var(--motion-distance));
+    }
+}
+
+@keyframes sugar-motion-zoom {
+    from {
+        transform: scale(var(--motion-zoom-from));
+    }
+}
+
+@keyframes sugar-motion-drop {
+    from {
+        opacity: 0;
+        transform: translateY(calc(var(--motion-nudge) * -1));
+    }
+}
+
+@media screen and (prefers-reduced-motion: no-preference) {
+    /* 値が変わった時（価格・合計）に JS が少し動かす。文の中の span は transform が効かないので、行の中の箱にする */
+    :where(:root:not([data-motion="none"]) [data-variant-price], :root:not([data-motion="none"]) [data-addon-total]) {
+        display: inline-block;
+    }
+
+    /* 「カートに入れる」を押している間だけ少し縮める */
+    :where(:root:not([data-motion="none"]) form[data-cart-form] [type="submit"]) {
+        transition: transform 150ms var(--motion-ease);
+    }
+
+    :where(:root:not([data-motion="none"]) form[data-cart-form] [type="submit"]:active:not(:disabled)) {
+        transform: scale(var(--motion-press-scale));
+    }
+
+    /* ページを開いた時（トップの見出し）。CSS だけで動くので JS が無くても同じ。始めから薄く見えている */
+    :where(:root:not([data-motion="none"]) [data-motion-intro]) {
+        animation: sugar-motion-intro var(--motion-intro-duration) var(--motion-ease) backwards;
+    }
+
+    /* ページを開いた時の写真のゆっくりした拡大（rich だけ）。写真の箱は overflow: hidden にしておく */
+    :where(:root[data-motion="rich"] [data-motion-zoom]) {
+        animation: sugar-motion-zoom var(--motion-zoom-duration) var(--motion-ease) backwards;
+    }
+
+    /* スマホのメニュー（<details data-motion-menu>）を開いた時。閉じる動きは motion.js が付ける */
+    :where(:root:not([data-motion="none"]) details[data-motion-menu][open] [data-motion-menu-panel]) {
+        animation: sugar-motion-drop var(--motion-duration) var(--motion-ease) backwards;
+    }
+
+    /* スクロールで浮かぶ（rich だけ）。隠すのは JS が data-motion-ready を付けた後の、まだ見えていない所だけ */
+    :where(:root[data-motion="rich"][data-motion-ready] [data-motion-reveal]) {
+        transition: opacity var(--motion-reveal-duration) var(--motion-ease), transform var(--motion-reveal-duration) var(--motion-ease);
+    }
+
+    :where(:root[data-motion="rich"][data-motion-ready] [data-motion-reveal]:not([data-motion-shown])) {
+        opacity: 0;
+        transform: translateY(var(--motion-distance));
+    }
+}
+
+/* 指を乗せられる端末だけ: 商品の札の写真を少し寄せる（札の写真の箱は overflow: hidden） */
+@media screen and (hover: hover) and (prefers-reduced-motion: no-preference) {
+    :where(:root:not([data-motion="none"]) [data-motion-card] img) {
+        transition: transform var(--motion-hover-duration) var(--motion-ease);
+    }
+
+    :where(:root:not([data-motion="none"]) [data-motion-card]:hover img, :root:not([data-motion="none"]) [data-motion-card]:focus-visible img) {
+        transform: scale(var(--motion-hover-scale));
+    }
+}
+
+/* 動きを減らす設定・強さ none では、念を押してすべて止める（テーマが自分で動きを足していても、印の付いた所は止まる） */
+@media (prefers-reduced-motion: reduce) {
+    [data-motion-intro],
+    [data-motion-zoom],
+    [data-motion-reveal],
+    [data-motion-menu-panel],
+    [data-motion-card] img,
+    form[data-cart-form] [type="submit"] {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    [data-motion-reveal] {
+        opacity: 1 !important;
+        transform: none !important;
+    }
+}
+
+:root[data-motion="none"] :is([data-motion-intro], [data-motion-zoom], [data-motion-reveal], [data-motion-menu-panel], [data-motion-card] img) {
+    animation: none !important;
+    transition: none !important;
+}

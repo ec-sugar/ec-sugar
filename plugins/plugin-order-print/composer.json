@@ -1,0 +1,61 @@
+{
+    "name": "ec-sugar/plugin-order-print",
+    "description": "EC-SUGAR 公式の App: 納品書・領収書（印刷用のページ。ブラウザの印刷で紙か PDF に）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginOrderPrint\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginOrderPrint\\OrderPrintServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "order-print",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "operations",
+            "settings": {
+                "registration_number": {
+                    "type": "text",
+                    "label": "インボイスの登録番号",
+                    "help": "T と 13 桁の数字（例: T1234567890123）。入れると領収書と納品書に出します。登録していなければ空のままにします。",
+                    "pattern": "T[0-9]{13}",
+                    "max": 14
+                },
+                "proviso": {
+                    "type": "text",
+                    "label": "但し書きの既定",
+                    "help": "40 文字まで。空なら「お品代として」。お客さんは変えられません（管理画面からは 1 枚ごとに変えられます）。",
+                    "pattern": ".{1,40}",
+                    "max": 40
+                },
+                "show_logo": {
+                    "type": "toggle",
+                    "label": "ロゴを出す",
+                    "help": "「ロゴの写真」で選んだ写真を、書類の右上（発行者の上）に出します。",
+                    "default": false
+                },
+                "logo": {
+                    "type": "media",
+                    "label": "ロゴの写真",
+                    "help": "ショップの写真から選ぶか、新しくアップロードします。横長の写真が向いています。"
+                }
+            }
+        }
+    }
+}

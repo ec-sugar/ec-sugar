@@ -1,0 +1,23 @@
+# 外への通信の出口の代理（docker/egress/proxy.php。ADR 0102）が通す名前の一覧。1 行に 1 つ。# から後ろは読まない
+#
+# 書き方: 名前そのもの（api.stripe.com）か、下の名前をまとめて許す *.example.com（example.com そのものは含まない）。
+# ポートは 443 だけ（https）。名前は代理が引き、引いた住所が 1 つでも内向き（10/8・172.16/12・192.168/16・127/8 など）なら断る。
+# サーバーごとに足すものは env ファイルの EC_SUGAR_EGRESS_ALLOW（カンマか空白で区切る）に書く（ここを書き換えない。更新で戻る）。
+# 誰でも自分のサイトを置ける共用の名前（*.amazonaws.com・*.cloudfront.net・*.googleapis.com など）は書かない（攻める人のサイトへ送り出せる）。
+# アプリが外へ出る所を足したら、ここにも足す（docs/security/threat-model.md の「信頼境界と脅威」の表の「アプリのコンテナ → インターネット」の行と、ADR 0102 の一覧も）
+
+# 支払い（Stripe。決済の作成・返金・Connect の口座の画面の URL・Webhook の確かめ直し。app/Core/Payment/Stripe）
+api.stripe.com
+
+# LINE 連携（ログインのトークン・友だちの確かめ・知らせの送信。plugins/plugin-line）
+api.line.me
+
+# 店への知らせの Slack（Incoming Webhook。plugins/plugin-shop-notify。宛先は hooks.slack.com の形だけ）
+hooks.slack.com
+
+# 郵便番号から住所を引く（zipcloud。app/Storefront/Postal/ZipcloudPostalLookup.php）
+zipcloud.ibsnet.co.jp
+
+# 入れたときのサンプルの写真（Unsplash。ダウンロードの URL から写真の置き場へ転送される。app/Core/Shop/Samples/SamplePhotos.php）
+unsplash.com
+images.unsplash.com

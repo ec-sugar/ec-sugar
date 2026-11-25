@@ -1,0 +1,33 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__;
+
+/**
+ * 記録の状態（ひな形）。値は DB の CHECK と同じ（足すときは移行の CHECK も直す）
+ */
+enum __STUDLY__Status: string
+{
+    case Open = 'open';
+    case Closed = 'closed';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Open => '受付中',
+            self::Closed => '終わり',
+        };
+    }
+
+    /**
+     * 管理画面の状態の札の色（CellType::TONES のどれか）
+     */
+    public function tone(): string
+    {
+        return match ($this) {
+            self::Open => 'good',
+            self::Closed => 'muted',
+        };
+    }
+}

@@ -1,0 +1,57 @@
+{
+    "name": "ec-sugar/plugin-gift-cards",
+    "description": "EC-SUGAR 公式の App: ギフトカード（商品券を売り、お支払いが完了したらコードをメールで送る。残高とお支払いへの使い方は核。ADR 0076）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginGiftCards\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginGiftCards\\GiftCardsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "gift-cards",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "denominations": {
+                    "type": "text",
+                    "label": "額面の選択肢（円）",
+                    "help": "お客さんが選べる額面を、半角の数字とカンマで（例: 3000,5000,10000）。1 つ 1,000〜50,000 円で 8 つまで。空なら 3,000・5,000・10,000 円です。",
+                    "pattern": "[0-9]{4,5}(,[0-9]{4,5}){0,7}",
+                    "max": 47
+                },
+                "daily_limit": {
+                    "type": "text",
+                    "label": "1 日に売る上限（円）",
+                    "help": "同じメールアドレス・同じ IP アドレスから 24 時間に購入できる金額の合計の上限です（盗まれたカードでの大量購入や、贈る相手へのメールの悪用を防ぎます）。空なら 100,000 円。1,000〜1,000,000 円で指定します。",
+                    "pattern": "[0-9]{4,7}",
+                    "max": 7
+                },
+                "valid_days": {
+                    "type": "text",
+                    "label": "有効期限（発行からの日数）",
+                    "help": "空なら 180 日。1〜1095 日（3 年）で指定します。180 日以下なら発行から 6 か月以内に収まり、資金決済法の前払式支払手段（自家型）の届出の対象外になる目安です。それより長くすると、毎年 3 月末・9 月末の時点で未使用の残高が 1,000 万円を超えたときに届出が必要です（判断はお店で行ってください。未使用の残高の合計は 設定 › ギフトカード で確認できます）。",
+                    "pattern": "[0-9]{1,4}",
+                    "max": 4
+                }
+            }
+        }
+    }
+}

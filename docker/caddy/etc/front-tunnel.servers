@@ -1,0 +1,15 @@
+# 入口の形 tunnel（ADR 0052。家の網に穴を開けず、cloudflared が Cloudflare へつなぎに行く）: Caddyfile の servers が読み込む。
+# 信じるのは cloudflared の住所（tunnel の網で固定。cloudflared と caddy しかいない内側の網）から来た接続だけ。そのときだけ
+# Cloudflare が付けた CF-Connecting-IP を接続元にする。ほかから来た接続（サーバーの中の 127.0.0.1 など）の見出しは使わない
+trusted_proxies static {$EC_SUGAR_TUNNEL_ADDR}/32
+client_ip_headers CF-Connecting-IP
+#
+# TLS の名前（SNI）と Host の違いは断らない。cloudflared は行き先の規則ごとに接続の束（keep-alive の使い回し）を 1 つ持ち、
+# matchSNItoHost は新しくつなぐ時の SNI を決めるだけ。*.<ショップのドメイン> の規則では、ある店の名前で握手した接続に別の店の要求が載り、
+# on のままだと本物のショップの要求が 421 になる（2026-11-09 に本番で、店の無い名前を開くと 421 になって分かった）。
+# 外しても Host のすり替えの道は増えない: この形の Caddy に届くのは cloudflared と、サーバーの中の 127.0.0.1 だけ。
+# 店ごと・管理画面の守りは要求の Host と接続元で決まり（nginx・EC-SUGAR）、SNI で変わる TLS の決まり（クライアント証明書など）は無いので、
+# SNI と Host をずらしても、その Host を名前どおりに開いたのと同じ扱いにしかならない。
+# off でなく insecure_off（Caddy 2.11 で「明示して切る」の書き方。off は設定の読み込みで断られる。書かない＝未設定だと、
+# クライアント証明書を求める設定がある時に Caddy が自分で on にする）
+strict_sni_host insecure_off

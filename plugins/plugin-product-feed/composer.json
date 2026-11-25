@@ -1,0 +1,50 @@
+{
+    "name": "ec-sugar/plugin-product-feed",
+    "description": "EC-SUGAR の App: 商品フィード（Google Merchant Center と Meta のカタログに商品を並べるための一覧の XML）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginProductFeed\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginProductFeed\\ProductFeedServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "product-feed",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "brand": {
+                    "type": "text",
+                    "label": "ブランドの既定",
+                    "help": "商品ごとのブランドが空の商品に使う名前です（70 文字まで）。空なら店の名前を使います。",
+                    "pattern": "[^\\p{C}]{1,70}",
+                    "max": 70
+                },
+                "google_product_category": {
+                    "type": "text",
+                    "label": "Google の商品カテゴリの既定",
+                    "help": "Google の商品カテゴリの番号です（例: 166 は「ファッション・アクセサリー」）。商品ごとのカテゴリが空の商品に使います。空なら送りません。",
+                    "pattern": "[0-9]{1,6}",
+                    "max": 6
+                }
+            }
+        }
+    }
+}

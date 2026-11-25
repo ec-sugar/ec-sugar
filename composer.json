@@ -1,0 +1,151 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "ec-sugar/ec-sugar",
+    "type": "project",
+    "description": "EC-SUGAR: 物販・買取・定期・店舗・マーケット・仕事をひとつの核に載せる取引基盤",
+    "keywords": ["laravel", "framework"],
+    "license": "AGPL-3.0-only",
+    "require": {
+        "php": "^8.4.1",
+        "composer/semver": "3.6.0",
+        "ec-sugar/plugin-age-check": "^0.1",
+        "ec-sugar/plugin-blog": "^0.1",
+        "ec-sugar/plugin-bundle": "^0.1",
+        "ec-sugar/plugin-cart-reminder": "^0.1",
+        "ec-sugar/plugin-catalog-sort": "^0.1",
+        "ec-sugar/plugin-clarity": "^0.1",
+        "ec-sugar/plugin-contact": "^0.1",
+        "ec-sugar/plugin-downloads": "^0.1",
+        "ec-sugar/plugin-faq": "^0.1",
+        "ec-sugar/plugin-favorites": "^0.1",
+        "ec-sugar/plugin-ga4": "^0.1",
+        "ec-sugar/plugin-gift": "^0.1",
+        "ec-sugar/plugin-gift-cards": "^0.1",
+        "ec-sugar/plugin-google-ads": "^0.1",
+        "ec-sugar/plugin-google-map": "^0.1",
+        "ec-sugar/plugin-line": "^0.1",
+        "ec-sugar/plugin-lineyahoo-ads": "^0.1",
+        "ec-sugar/plugin-member-ranks": "^0.1",
+        "ec-sugar/plugin-meta-pixel": "^0.1",
+        "ec-sugar/plugin-microsoft-uet": "^0.1",
+        "ec-sugar/plugin-newsletter": "^0.1",
+        "ec-sugar/plugin-order-print": "^0.1",
+        "ec-sugar/plugin-pinterest-tag": "^0.1",
+        "ec-sugar/plugin-preorder": "^0.1",
+        "ec-sugar/plugin-product-csv": "^0.1",
+        "ec-sugar/plugin-product-feed": "^0.1",
+        "ec-sugar/plugin-purchase-limits": "^0.1",
+        "ec-sugar/plugin-recommendations": "^0.1",
+        "ec-sugar/plugin-referral": "^0.1",
+        "ec-sugar/plugin-restock": "^0.1",
+        "ec-sugar/plugin-reviews": "^0.1",
+        "ec-sugar/plugin-sale-period": "^0.1",
+        "ec-sugar/plugin-services": "^0.1",
+        "ec-sugar/plugin-shipping-csv": "^0.1",
+        "ec-sugar/plugin-shop-notify": "^0.1",
+        "ec-sugar/plugin-smartnews-ads": "^0.1",
+        "ec-sugar/plugin-tiktok-pixel": "^0.1",
+        "ec-sugar/plugin-video": "^0.1",
+        "ec-sugar/plugin-wrapping": "^0.1",
+        "ec-sugar/plugin-x-pixel": "^0.1",
+        "ec-sugar/theme-botanica": "^0.1",
+        "ec-sugar/theme-default": "^0.1",
+        "ec-sugar/theme-fashion": "^0.1",
+        "ec-sugar/theme-kinari": "^0.1",
+        "laravel/framework": "^13.17",
+        "laravel/mcp": "^1.2",
+        "laravel/passkeys": "^0.3.0",
+        "laravel/tinker": "^3.0",
+        "stancl/tenancy": "^3.10",
+        "stripe/stripe-php": "23.0.0",
+        "symfony/html-sanitizer": "8.1.11"
+    },
+    "require-dev": {
+        "brianium/paratest": "^7.20",
+        "ec-sugar/plugin-tag-sample": "^0.1",
+        "fakerphp/faker": "^1.23",
+        "larastan/larastan": "^3.13",
+        "laravel/pail": "^1.2.5",
+        "laravel/pao": "^1.0.6",
+        "laravel/pint": "^1.27",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.6",
+        "phpunit/phpunit": "^12.5.12",
+        "roave/security-advisories": "dev-latest"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "setup": [
+            "composer install",
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php artisan key:generate",
+            "@php artisan migrate --force",
+            "npm ci --ignore-scripts",
+            "npm run build"
+        ],
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan dev"
+        ],
+        "test": [
+            "@php artisan config:clear --ansi @no_additional_args",
+            "@php artisan test"
+        ],
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi",
+            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+            "@php artisan migrate --graceful --ansi"
+        ],
+        "pre-package-uninstall": [
+            "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        },
+        "platform": {
+            "php": "8.5.12"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "repositories": [{
+        "name": "plugins",
+        "type": "path",
+        "url": "plugins/*",
+        "options": {
+            "symlink": true
+        }
+    }]
+}

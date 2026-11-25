@@ -1,0 +1,1706 @@
+#!/usr/bin/env bash
+# EC-SUGAR を入れた後の運用のコマンド（ADR 0030）。deploy/install.sh が /usr/local/bin/ec-sugar に置く
+#
+#   sudo ec-sugar status                          動いているか・バージョン・最後の更新と結果・最後のバックアップ・証明書の期限・ホストのファイアウォール
+#   sudo ec-sugar backup [--no-files]             中央と全部の店の DB と写真などのファイルのバックアップ（/srv/ec-sugar/backup、7 日分。--no-files は DB だけ）
+#   sudo ec-sugar offsite [status | test | run | pull …]
+#                                                 サーバーの外のバックアップ（S3 互換のストレージ。ADR 0110。ストレージを設定したサーバーだけ）。status は設定と最後の結果、
+#                                                 test はストレージに書けるか・暗号化できるか・ストレージが上書きと削除を断るかを確認する、run は溜まったバックアップを今すぐ送る
+#                                                 （ec-sugar-offsite.timer が 10 分ごと。run --retry は、送れずに間を空けている・あきらめたバックアップを今すぐ再試行する）
+#   sudo ec-sugar offsite pull <名前 | --latest | --list> --kit <復元のキット> [--kit-passphrase-file <ファイル>] [--sent <送った時刻>] [--no-files]
+#                                                 ストレージからバックアップを取って復号し、/srv/ec-sugar/backup に展開する（その先は restore）。復元のキットは、ストレージの読み取り用のアクセスキー・
+#                                                 秘密鍵・APP_KEY のバックアップを 1 つにまとめてパスフレーズで暗号化したファイル（持ち主が手元で deploy/recovery-kit で作る。
+#                                                 戻す先のサーバーへだけ渡す）。キットのパスフレーズは端末で聞く（端末が無ければ --kit-passphrase-file）。
+#                                                 管理画面の運営ダッシュボードで作ったキットは、秘密鍵と APP_KEY だけが入っている。その時は、ストレージのエンドポイント・バケット・
+#                                                 読み取り用のアクセスキーを --endpoint・--bucket・--credentials-file で一緒に渡す（読み取り用のアクセスキーはストレージの側で作り直せる）。
+#                                                 --list はストレージにそろっているセットの一覧（ストレージの側の時刻つき）。--latest はストレージの側の時刻でいちばん新しいもの。
+#                                                 同じ名前のセットが 2 つ以上・時刻の食い違うセットは --sent で選ぶ
+#   sudo ec-sugar offsite pull <名前 | --latest | --list> --credentials-file <読み取り用のアクセスキー> [--decrypt-key-file <秘密鍵>] [--passphrase-file <ファイル>]
+#                              [--sent <送った時刻>] [--no-files]
+#                                                 キットを使わず、鍵を個別のファイルで渡す方法（キットと同時には渡せない）。
+#                                                 エンドポイントなどは --endpoint・--bucket・--prefix・--region で替えられる
+#   sudo ec-sugar restore <名前> [--isolated] [--kit <復元のキット> [--kit-passphrase-file <ファイル>] | --app-key-file <ファイル>] [--no-files] [--yes]
+#                                                 バックアップから中央と全部の店の DB と写真などのファイルを戻す（先に今の状態のバックアップを取る）。
+#                                                 --isolated は使い捨ての VM に本番の複製環境を立てるモード（外へ何も出さない。docs/development/restore-drill.md）。
+#                                                 別のサーバーへ戻す時は、APP_KEY を復元のキット（--kit）か、個別のファイル（--app-key-file）で渡す
+#   sudo ec-sugar restore-check [--verify]        店ごとの取引・台帳・記録・写真の数を出す（戻した後の確認。読むだけ。--verify は記録のハッシュチェーンも確認する）
+#   sudo ec-sugar restore-check --heads <ファイル>  ストレージの heads/ から取った記録の連鎖の先頭（.tsv）と、今の店の記録を照らす（末尾の切り落としと書き換えに気づく）
+#   sudo ec-sugar update [--to <タグかコミット>] [--allow-downgrade]
+#                                                 更新（取得 → 確認 → イメージ → バックアップ → マイグレーション → 切り替え → ヘルスチェック → 駄目ならロールバック）。
+#                                                 release チャネルは署名したタグ（v1.2.3）だけ。--to が無ければ署名の通る最新。古いバージョンへは --allow-downgrade の時だけ
+#   sudo ec-sugar trust [list | add <公開鍵のファイル> --name=<名前> | remove <指紋>] [--yes]
+#                                                 タグの署名で信頼する鍵（/srv/ec-sugar/trust/allowed_signers）を見る・足す・外す
+#   sudo ec-sugar app-key                         APP_KEY（お客さんの個人情報の暗号の鍵の元。バックアップには入らない）のバックアップの説明を出す（何の鍵か・どこにあるか・取り方）
+#   sudo ec-sugar app-key export <ファイル>        設定のファイルを、root だけが読める 0600 のファイルにコピーする（サーバーの外へ移すため。上書きしない。鍵は画面に出さない）
+#   sudo ec-sugar rollback                        前のバージョンへロールバック（イメージだけ。DB はそのまま）
+#   sudo ec-sugar rollback --restore-backup <名前> 前のバージョンへロールバックし、DB もバックアップから戻す（バックアップの後に入った注文などが消える。確認してから）
+#   sudo ec-sugar logs [-f] [サービス]             ログを見る（caddy・web・app・queue・scheduler・egress・db・redis。Cloudflare Tunnel の構成は cloudflared も）
+#   sudo ec-sugar operator create <メール> --name=<名前>   管理者を作り、パスキーの登録の URL を出す（enroll・list なども同じ）
+#   sudo ec-sugar deploy-key                      非公開のリポジトリから取るための鍵（読み取りだけの deploy key）を作って見せる
+#   sudo ec-sugar check-front                     すでにある Web サーバーの後ろに置く構成で、前段のリバースプロキシの設定を確認する（設定を足したら実行する）。
+#                                                 Cloudflare Tunnel の構成では、接続元を偽れないことと外（Cloudflare）を回って開けることを確認する（DNS の CNAME を足したら実行する）
+#   sudo ec-sugar firewall                        ホストのファイアウォールを再適用する（Plesk のファイアウォールを適用した後・iptables を作り直した後）
+#   sudo ec-sugar report                          証明書の期限・空き容量・最後の更新とバックアップを、運営ダッシュボードへ今すぐ渡す（毎晩と更新・バックアップの後は自動）
+#   sudo ec-sugar admin-ips [<IP か範囲,…>]       管理画面を開ける接続元を見る・替える（家の回線の IP アドレスが変わって入れなくなったとき）
+#   sudo ec-sugar egress [watch | enforce | off]  外への通信のモードを見る・替える（監視・許す一覧に無い宛先を止める・送信用プロキシを使わない。この 24 時間の数と一覧に無かった名前も）
+#   sudo ec-sugar shops [multi --domain=<ドメイン> | single] [--yes]
+#                                                 店の数の構成を見る・1 店舗から複数の店の構成へ切り替える（今のショップの URL は変えない）・1 店舗へ戻す
+#   sudo ec-sugar watch                           通知のジョブを今すぐ実行する（ec-sugar-watch.timer が 10 分ごと。定期の処理が止まっても通知するため）。
+#                                                 Cloudflare Tunnel の構成では、よそからトンネルに接続しているコネクタが無いかも見る（読み取り専用の API トークンがあるとき）
+#   sudo ec-sugar integrity [check | key | record | token] 内部の整合性チェック（ADR 0105）。check は今すぐチェックして署名した状態を書く（ec-sugar-integrity.timer が毎分）、
+#                                                 key は外部監視に置く公開鍵（PEM）を出す、record は基準の状態を今の状態で記録し直す（違いを調べて正しいと分かった時）、
+#                                                 token は外部監視が取得に付けるトークンを出す
+#
+# systemd から呼ぶもの: start・stop（ec-sugar.service）、update --auto（ec-sugar-update.timer）、firewall（ec-sugar-firewall.service。どの形でも）、
+#   watch（ec-sugar-watch.timer。どの形でも）、integrity check（ec-sugar-integrity.timer。毎分、どの形でも）、
+#   offsite run（ec-sugar-offsite.timer。10 分ごと。置き場を設定していなければ何もしない）
+# 更新の道から呼ぶもの: ensure-env（取り出したバージョンが要る env を答えから補う）、install-units（新しく入った道具で unit を入れ直す）
+set -euo pipefail
+# 作るファイルの権限を決め打つ（流した人の umask が 077 でも、取り出したソースを DB・nginx・PHP のコンテナが読めるように）。
+# 秘密のファイルは、その場だけ umask 077 で作る（common.sh）
+umask 022
+
+EC_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+# shellcheck source=lib/common.sh
+. "$(dirname "$EC_SELF")/lib/common.sh"
+
+usage() {
+    # 頭のコメントの、使い方の行だけ（systemd から呼ぶものの前まで）
+    sed -n '2,/^# systemd から呼ぶもの/p' "$EC_SELF" | sed '$d' | sed 's/^# \{0,1\}//'
+}
+
+ec_require_installed() {
+    [ -e "$EC_STATE/installed" ] || ec_die "EC-SUGAR はまだ入っていません" "リポジトリを取った所で sudo ./deploy/install.sh を実行する"
+}
+
+ec_tty_flag() {
+    if [ -t 0 ] && [ -t 1 ]; then printf ''; else printf -- '-T'; fi
+}
+
+# 終わりに、サーバーの見張りの報告（証明書・空き容量・更新・バックアップ）を運営の様子へ渡す。
+# 更新・バックアップ・ロールバックの、鍵を取った後で呼ぶ（止まって終わった時も渡す）。渡せなくても終わりの番号は変えない
+ec_report_at_exit() {
+    trap 'ec_exit_code=$?; ec_host_report || true; exit "$ec_exit_code"' EXIT
+}
+
+# 決めたコミットのバージョンへ切り替えて、ヘルスチェックを通るかを確かめる
+ec_switch_to() {
+    local commit="$1" image
+    image="$(ec_image_of "$commit")"
+    docker image inspect "$image" > /dev/null 2>&1 || { ec_warn "イメージ $image が残っていません"; return 1; }
+    ec_src_checkout "$commit"
+    ec_env_set EC_SUGAR_IMAGE "$image"
+    ec_health "$image"
+}
+
+# 今と前のバージョンのイメージだけを残す（ロールバックできるように前のバージョンは消さない）
+ec_prune_images() {
+    local keep1 keep2 tag
+    keep1="$(ec_state_get current_commit || true)"
+    keep2="$(ec_state_get previous_commit || true)"
+    while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        [ "$tag" = "$keep1" ] || [ "$tag" = "$keep2" ] && continue
+        docker image rm "$EC_IMAGE_REPO:$tag" > /dev/null 2>&1 || true
+    done < <(docker image ls "$EC_IMAGE_REPO" --format '{{.Tag}}')
+    docker image prune -f > /dev/null 2>&1 || true
+    ec_prune_build_cache
+    # 公開版の形の compose の置き場も、今と前のバージョンの分だけ残す
+    ec_compose_prune
+}
+
+# 名前（枝・タグ・コミット）をコミットのハッシュにする
+ec_resolve() {
+    local ref="$1" c
+    ec_valid_ref "$ref" || ec_die "「${ref}」はブランチ・タグ・コミットの名前として使えません"
+    for c in "refs/tags/$ref" "refs/remotes/origin/$ref" "$ref"; do
+        if c="$(ec_git rev-parse --verify --quiet "$c^{commit}")"; then
+            printf '%s' "$c"
+            return 0
+        fi
+    done
+    ec_die "「${ref}」が見つかりません" "取得元（リモート）にあるブランチ・タグ・コミットを指定する（sudo -u $EC_USER git -C $EC_SRC log --oneline origin/$(ec_answer UPDATE_BRANCH || echo main) で見る）"
+}
+
+# 更新の終わりに: 思わぬ所で落ちたら今のバージョンへ戻す（update_interrupted）・取り出した運用の道具の一時の置き場を消す・見張りの報告を渡す
+EC_DEPLOY_TMP=""
+ec_update_at_exit() {
+    trap 'ec_exit_code=$?; update_interrupted || true; [ -z "$EC_DEPLOY_TMP" ] || rm -rf "$EC_DEPLOY_TMP"; ec_host_report || true; exit "$ec_exit_code"' EXIT
+}
+
+# 更新が途中で止まったときに、作業場所と env を前のバージョンへそろえる（中「途中で止まったときの半端な状態」）。
+# 印（ec_update_mark）は作業場所を切り替えた直後に置き、止める・終わる所で必ず消すので、残っているのは思わぬ所で落ちた（set -e・止める合図）か、
+# 前の回が電源断などで切れた時だけ。更新の終わり（trap）と、次の update・rollback の始め（鍵を取った後）に呼ぶ
+update_interrupted() {
+    local from to
+    [ -e "$EC_UPDATE_MARK" ] || return 0
+    from="$(ec_kv_get "$EC_UPDATE_MARK" from || true)"
+    to="$(ec_kv_get "$EC_UPDATE_MARK" to || true)"
+    # 記録がもう新しいバージョンなら、切り替えは済んでいる（印を消す前に止まっただけ）
+    if ! ec_valid_commit "$from" || [ "$(ec_state_get current_commit || true)" = "$to" ]; then
+        ec_update_mark_clear
+        return 0
+    fi
+    ec_warn "更新（${from:0:12} → ${to:0:12}）が途中で止まっていました。前のバージョン ${from:0:12} にそろえます"
+    if [ "$(ec_env_get EC_SUGAR_IMAGE 2> /dev/null || true)" = "$(ec_image_of "$from")" ]; then
+        # 切り替える前に止まった（動いているのは前のバージョンのまま）。作業場所だけを戻す
+        if (ec_src_checkout "$from"); then
+            ec_record stopped "$from" "$to" "更新が途中で止まった。前のバージョンのまま動いている"
+        else
+            ec_record failed "$from" "$to" "更新が途中で止まり、作業ツリーを前のバージョンへ戻せなかった（sudo -u $EC_USER git -C $EC_SRC status で見る）"
+        fi
+    elif (ec_switch_to "$from"); then
+        ec_record rolled_back "$from" "$to" "更新が切り替えの途中で止まったので、前のバージョンへ戻した"
+    else
+        ec_record failed "$from" "$to" "更新が切り替えの途中で止まり、前のバージョンへ戻してもヘルスチェックを通らない"
+    fi
+    ec_update_mark_clear
+}
+
+# 更新を止める: 作業場所を今のバージョンへ戻し、記録して、途中の印を消してから止める。$1 今 $2 新しい $3 記録の一言、4 つ目から ec_die へ
+update_stop() {
+    local cur="$1" target="$2" msg="$3"
+    shift 3
+    (ec_src_checkout "$cur") || ec_warn "作業ツリーを前のバージョン ${cur:0:12} へ戻せませんでした（sudo -u $EC_USER git -C $EC_SRC status で見る）"
+    ec_record stopped "$cur" "$target" "$msg"
+    ec_update_mark_clear
+    ec_die "$@"
+}
+
+# 公開版の形で、取得元にあった署名の通らないタグ・見送ったメジャーバージョンを知らせる（ec_release_pick の後）
+release_note_skipped() {
+    local cur="$1"
+    if [ -n "$EC_PICK_SKIPPED" ]; then
+        ec_warn "署名の通らないタグを入れずに飛ばしました: ${EC_PICK_SKIPPED}（取得元に、信頼する鍵で署名していないタグがあります。乗っ取りか付け忘れの恐れ）"
+        ec_history "$(date -Is)" stopped "$cur" "" "署名の通らないタグを飛ばした: ${EC_PICK_SKIPPED}"
+        ec_state_put tag_warning "署名の通らないタグを入れずに飛ばした: ${EC_PICK_SKIPPED}（$(date -Is)。取得元を確認する）"
+    else
+        rm -f "$EC_STATE/tag_warning"
+    fi
+    if [ -n "$EC_PICK_MAJOR" ]; then
+        ec_say "新しいメジャーバージョンがあります: ${EC_PICK_MAJOR}（大きな変更は自動の更新では入れない。CHANGELOG を読んでから sudo ec-sugar update --to <タグ>）"
+    fi
+}
+
+cmd_update() {
+    local to="" auto=0 allow_down=0 channel cur cur_version="" branch target tag="" image env_ok=0 origin pick=0 guard=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --to) [ $# -ge 2 ] || ec_die "--to の後にタグ（release チャネル）かコミット（source チャネル）を書く"; to="$2"; shift 2 ;;
+            --to=*) to="${1#--to=}"; shift ;;
+            --auto) auto=1; shift ;;
+            --allow-downgrade) allow_down=1; shift ;;
+            *) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+        esac
+    done
+    ec_require_root
+    ec_require_installed
+    channel="$(ec_channel)" || ec_die "設定ファイル ${EC_ANSWERS} の CHANNEL が source でも release でもありません（何も変えていません）" "${EC_ANSWERS} の CHANNEL を直す（公開版は release）"
+    [ "$auto" -eq 0 ] || [ "$allow_down" -eq 0 ] || ec_die "--allow-downgrade は手の更新でだけ使えます（自動の更新は古いバージョンへ戻らない）"
+    if [ "$auto" -eq 1 ]; then ec_lock auto; else ec_lock; fi
+    # 毎晩の確かめも、更新が無くても報告する。思わぬ所で落ちたら前のバージョンへそろえる
+    ec_update_at_exit
+    # env の前の名前（SUGAR_EC_…）の行に、新しい名前（EC_SUGAR_…）の行を同じ値で持たせる（前の名前の行は残す）
+    ec_env_migrate || ec_die "設定の env に新しい名前の行を足せないので、更新を始めませんでした（何も変えていません）" "sudo ls -l $EC_ENV_FILE と df -h $EC_ENV_DIR で権限と空き容量を見る"
+    # 更新の有る無しにかかわらず、毎回ホストの防火壁を当て直す（Plesk のファイアウォールの適用・iptables の作り直しで消されても、
+    # 次の確かめ〔本番は毎晩、ステージングは 15 分ごと〕で戻る）
+    ec_firewall_apply || ec_warn "ホストのファイアウォールを適用できませんでした（sudo ec-sugar firewall で理由を見る）"
+    # 前の回が途中で止まっていれば（電源断など）、先に前のバージョンへそろえる
+    update_interrupted
+    cur="$(ec_state_get current_commit || true)"
+    ec_valid_commit "$cur" || ec_die "今のバージョンの記録（$EC_STATE/current_commit）が読めません" "sudo ./deploy/install.sh を再実行する"
+    # 開発の形の自動の更新は、答えで入れた時だけ（枝の先を人の署名なしで取り込むので、既定は切る。高）
+    if [ "$auto" -eq 1 ] && [ "$channel" = source ] && [ "$(ec_answer AUTO_UPDATE || true)" != yes ]; then
+        ec_say "source チャネル（CHANNEL=source）の自動の更新は切ってあります（設定ファイルの AUTO_UPDATE=yes の時だけ）。更新は sudo ec-sugar update --to <コミット> で"
+        return 0
+    fi
+    branch="$(ec_answer UPDATE_BRANCH || echo main)"
+    # 取得元の URL にパスワードやトークンが入っていたら取りに行かない（記録・画面・state に出るため。URL そのものは出さない。中）
+    origin="$(ec_git remote get-url origin)"
+    if ec_url_has_secret "$origin"; then
+        ec_history "$(date -Is)" stopped "$cur" "" "取得元の URL にパスワードかトークンが入っている"
+        ec_state_put warning "自動の更新の取得元の URL にパスワードかトークンが入っています（記録に残るので、読み取りだけの鍵〔sudo ec-sugar deploy-key〕の形に替える）"
+        ec_die "取得元の URL にパスワードかトークンが入っているので、取りに行きませんでした（URL は出しません）" \
+            "sudo ec-sugar deploy-key で読み取りだけの鍵を作り、sudo -u $EC_USER git -C $EC_SRC remote set-url origin git@github.com:<持ち主>/<リポジトリ>.git で替える" \
+            "トークンを入れた URL を使ったなら、そのトークンを GitHub で取り消す"
+    fi
+
+    ec_step "新しいバージョンを取得する（${origin}）"
+    local fetch_args=(fetch --quiet --prune --tags --force)
+    # 公開版の形は、取得元で消えたタグを手元からも消す（消したタグを入れる候補にしない）
+    [ "$channel" != release ] || fetch_args+=(--prune-tags)
+    if ! ec_git "${fetch_args[@]}" origin; then
+        # 更新を試す前なので、最後の更新の結果（last_update）は変えずに記録にだけ残す（届かないことは下の警告と、
+        # 運営の様子の「取得元に 48 時間届いていない」で分かる。最後の結果を「止めた」にすると、届くようになっても次の更新まで要対応が消えない）
+        ec_history "$(date -Is)" stopped "$cur" "" "取得元に届かない"
+        ec_state_put warning "自動の更新の取得元 ${origin} に届きません（非公開なら sudo ec-sugar deploy-key）"
+        ec_die "取得元（リモート）に届きませんでした" \
+            "サーバーから外へ出られるか、取得元の URL が正しいかを確認する（sudo -u $EC_USER git -C $EC_SRC remote -v）" \
+            "非公開のリポジトリなら sudo ec-sugar deploy-key で読み取りだけの鍵を作って登録する"
+    fi
+    ec_state_put last_check "$(date -Is)"
+    # 取得元に届いたので、入れた時（install.sh の check_origin_reachable）か前の更新で残した「届きません」の警告を消す
+    # （取得元を GitHub に付け替えても、入れ直すまで警告が残っていた。2026-10-30 にステージングで見つけた）
+    if grep -q '^自動の更新の取得元' "$EC_STATE/warning" 2> /dev/null; then
+        rm -f "$EC_STATE/warning"
+    fi
+
+    if [ "$channel" = release ]; then
+        # 公開版の形: 人の鍵で署名した semver のタグだけ（ADR 0099）
+        cur_version="$(ec_state_get current_version || true)"
+        ec_release_pick "$to" "$auto" "$allow_down" "$cur" "$cur_version" || pick=$?
+        release_note_skipped "$cur"
+        case "$pick" in
+            0)
+                target="$EC_PICK_COMMIT"
+                tag="$EC_PICK_TAG"
+                ec_ok "タグ ${tag} の署名が通った（鍵 ${EC_PICK_SIGNER}、コミット ${target:0:12}）"
+                ;;
+            3)
+                [ -z "$EC_PICK_SKIPPED" ] || ec_record stopped "$cur" "" "署名の通らないタグを飛ばした（${EC_PICK_SKIPPED}）。入れられる新しいバージョンは無い"
+                ec_ok "もう最新です（${cur_version}、${cur:0:12}）"
+                return 0
+                ;;
+            *)
+                ec_record stopped "$cur" "" "$EC_PICK_PROBLEM"
+                ec_die "${EC_PICK_PROBLEM}（何も変えていません）" \
+                    "取得元のタグを確認する: sudo -u $EC_USER git -C $EC_SRC tag -l 'v*'" \
+                    "信頼する鍵を確認する: sudo ec-sugar trust list"
+                ;;
+        esac
+    elif [ -n "$to" ]; then
+        target="$(ec_resolve "$to")"
+    else
+        target="$(ec_git rev-parse --verify --quiet "refs/remotes/origin/$branch^{commit}")" ||
+            ec_die "取得元にブランチ $branch がありません" "install.answers の UPDATE_BRANCH を確認する"
+    fi
+    if [ "$target" = "$cur" ]; then
+        ec_ok "もう最新です（${cur:0:12}）"
+        return 0
+    fi
+    if [ "$auto" -eq 1 ]; then
+        if ec_is_held "$target"; then
+            ec_say "${target:0:12} は前に失敗した（または手動でロールバックした）バージョンなので、自動では取り込みません。直したバージョンを待つか、sudo ec-sugar update --to ${tag:-${target:0:12}} で手動でやり直す"
+            return 0
+        fi
+        if ec_git merge-base --is-ancestor "$target" "$cur"; then
+            ec_say "ブランチ $branch の先が今のバージョンより古い（巻き戻された）ので、自動では戻りません"
+            return 0
+        fi
+        # 早送りでつながる時だけ取り込む（取得元の履歴が書き換えられたら止めて知らせる。高）
+        if ! ec_git merge-base --is-ancestor "$cur" "$target"; then
+            ec_record stopped "$cur" "$target" "取得元の先が今のバージョンから fast-forward できない（履歴が書き換えられた恐れ）ので、自動では取り込まなかった"
+            ec_die "取得元の先 ${target:0:12} が今のバージョン ${cur:0:12} から fast-forward できないので、自動では取り込みません（何も変えていません）" \
+                "取得元の履歴を確認し、入れてよければ sudo ec-sugar update --to ${tag:-${target:0:12}} で手動で入れる"
+        fi
+    fi
+
+    ec_step "更新: ${cur:0:12} → ${target:0:12}${tag:+（${tag}）}"
+    # 作業場所に手で変えた所があれば、ここで何も変えずに止まる（ec_src_checkout）。切り替えた後から、途中の印を置く
+    ec_src_checkout "$target"
+    ec_update_mark "$cur" "$target"
+    image="$(ec_image_of "$target")"
+    # 取り出したバージョンの運用の道具は、作業場所のファイルでなく git の中身から（作業場所は利用者 ec-sugar が書ける。高）
+    EC_DEPLOY_TMP="$(ec_deploy_from_commit "$target")" ||
+        update_stop "$cur" "$target" "取り出したバージョンの運用のスクリプトを git から読めなかった。前のバージョンのまま動いている" \
+            "取り出したバージョンの運用のスクリプト（deploy/）を git から読めませんでした（前のバージョンのまま動いています）" "sudo -u $EC_USER git -C $EC_SRC fsck で作業ツリーの git を確認する"
+
+    # 0. 取り出したバージョンが要る env を、答えから決まる値で補う。取り出したバージョンの道具が ensure-env を持っていればそれで（新しく足された項目も分かる）、
+    #    無ければ今の道具で。決められない項目が足りなければ、マイグレーションの失敗と取り違えずに止める（このバージョンを保留したバージョンにしない）
+    if grep -q 'ensure-env)' "$EC_DEPLOY_TMP/deploy/ec-sugar" 2> /dev/null; then
+        bash "$EC_DEPLOY_TMP/deploy/ec-sugar" ensure-env || env_ok=1
+    else
+        ec_ensure_env || env_ok=1
+    fi
+    if [ "${env_ok:-0}" -ne 0 ]; then
+        update_stop "$cur" "$target" "新しいバージョンが要る設定が env に足りない。前のバージョンのまま動いている" \
+            "新しいバージョンが要る設定が env に足りないので、更新を止めました（前のバージョンのまま動いています）" \
+            "新しいバージョンのリポジトリで sudo ./deploy/install.sh を再実行する（設定ファイルから env を書き直す）"
+    fi
+
+    # 0b. 新しいバージョンの compose を、今入っているバージョンの守りの検査にかける（起こす前に。高）
+    ec_compose_guard "$EC_DEPLOY_TMP/docker/check-compose.sh" || guard=$?
+    case "$guard" in
+        0) ec_ok "新しいバージョンの compose が、今入っているバージョンのセキュリティチェックを通った" ;;
+        1)
+            if [ "$channel" = source ] && [ "$auto" -eq 0 ]; then
+                ec_warn "新しいバージョンの compose が、今入っているバージョンのセキュリティチェックを通りません（上の NG。記録 ${EC_COMPOSE_GUARD_LOG}）。source チャネルの手動の更新なので続けます"
+                ec_history "$(date -Is)" ok "$cur" "$target" "compose のセキュリティチェックが通らないまま手動で続けた"
+            else
+                update_stop "$cur" "$target" "新しいバージョンの compose が、今入っているバージョンのセキュリティチェックを通らない。前のバージョンのまま動いている" \
+                    "新しいバージョンの compose が、今入っているバージョンのセキュリティチェックを通らないので、更新を止めました（前のバージョンのまま動いています）" \
+                    "記録 ${EC_COMPOSE_GUARD_LOG} の NG の行を見る。セキュリティのルールを変えたバージョンなら、CHANGELOG の手順に従う"
+            fi
+            ;;
+        *)
+            if [ "$channel" = release ]; then
+                update_stop "$cur" "$target" "compose のセキュリティチェックを実行できない（jq が無い）。前のバージョンのまま動いている" \
+                    "compose のセキュリティチェックを実行できないので、更新を止めました（前のバージョンのまま動いています）" "sudo apt-get install -y jq の後に再実行する"
+            fi
+            ec_warn "compose のセキュリティチェックを実行できませんでした（jq が無い: sudo apt-get install -y jq）。source チャネルなので続けます"
+            ;;
+    esac
+
+    # 1. イメージ（開発の形は作る。公開版の形は署名を確かめて digest で取る。得られなければ何も変えずに止める）
+    if ! ec_obtain_image "$target" "$tag"; then
+        if [ "$channel" = release ]; then
+            update_stop "$cur" "$target" "イメージの署名が通らないか、取れなかった。前のバージョンのまま動いている" \
+                "イメージの署名が通らないか、取れなかったので、更新を止めました（前のバージョンのまま動いています）" "記録 $EC_LOGS/verify-${tag}.log を見る"
+        fi
+        update_stop "$cur" "$target" "イメージを作れなかった。前のバージョンのまま動いている" \
+            "イメージを作れませんでした（前のバージョンのまま動いています）" "ログ $EC_LOGS/build-${target:0:12}.log を見る"
+    fi
+
+    # 2. バックアップ（取れなければ先へ進まない）。DB だけ（更新で写真などのファイルは変わらない。ファイルは毎朝のバックアップに入る）
+    ec_step "更新の前のバックアップ"
+    if ! ec_backup "更新の前（${cur:0:12} → ${target:0:12}）" 0; then
+        update_stop "$cur" "$target" "バックアップを取れなかった。前のバージョンのまま動いている" \
+            "バックアップを取れなかったので更新を止めました（前のバージョンのまま動いています）" "sudo ec-sugar backup で原因を見る（ディスクの空き: df -h ${EC_BACKUP}）"
+    fi
+
+    # 3. 新しいイメージでマイグレーション（切り替える前。失敗したら古いバージョンが動き続ける）
+    ec_step "マイグレーション"
+    if ! ec_migrate "$image"; then
+        (ec_src_checkout "$cur") || ec_warn "作業ツリーを前のバージョン ${cur:0:12} へ戻せませんでした"
+        ec_hold "$target"
+        ec_update_mark_clear
+        # 店ごとの移行は途中まで当たっていることがある（中央と店は別の DB）。前のバージョンが本当に動いているかを確かめてから「動いている」と書く
+        if ec_health "$(ec_env_get EC_SUGAR_IMAGE)"; then
+            ec_record stopped "$cur" "$target" "マイグレーションに失敗した。前のバージョンのまま動いている（失敗したマイグレーションは取り消された）"
+            ec_die "マイグレーションに失敗したので更新を止めました（前のバージョンのまま動いています。このバージョンは自動では取り込み直しません）" \
+                "ログ $EC_LOGS/ の migrate-*.log を見る" "直したバージョンを出すか、原因を直してから sudo ec-sugar update --to ${tag:-${target:0:12}}"
+        fi
+        ec_record failed "$cur" "$target" "マイグレーションに失敗し、前のバージョンもヘルスチェックを通らない"
+        ec_die "マイグレーションに失敗し、前のバージョンもヘルスチェックを通りません（ショップが止まっている恐れがあります）" \
+            "ログ $EC_LOGS/ の migrate-*.log と sudo ec-sugar logs app web で理由を見る" \
+            "DB の中身が原因なら sudo ec-sugar rollback --restore-backup $(basename "$(ec_latest_backup || echo '<バックアップの名前>')")"
+    fi
+
+    # 4. 切り替えてヘルスチェックを確かめる。駄目なら前のイメージへ自動でロールバックする
+    ec_step "切り替え"
+    ec_env_set EC_SUGAR_IMAGE "$image"
+    if ec_health "$image"; then
+        ec_state_put previous_commit "$cur"
+        ec_state_put current_commit "$target"
+        # バージョン（タグ）は公開版の形だけ。開発の形はコミットだけなので消す（前の公開版の形の値を残さない）
+        if [ "$channel" = release ]; then
+            ec_state_put previous_version "$cur_version"
+            ec_state_put current_version "$tag"
+        else
+            rm -f "$EC_STATE/current_version" "$EC_STATE/previous_version"
+        fi
+        ec_update_mark_clear
+        ec_record ok "$cur" "$target" "更新した${tag:+（${tag}）}"
+        # 新しいバージョンの運用の道具と unit に入れ替える（確かめたコミットの git の中身から）。unit は、新しく入った道具にもう一度入れ直させる
+        # （今動いている前のバージョンの道具は、新しい unit の書き方〔時刻の帯の drop-in など〕を知らない）
+        ec_install_tools "$EC_DEPLOY_TMP/deploy"
+        # 錠はこの処理が持ったまま（EC_SUGAR_LOCK_HELD）。中の照らしの控え直しは、下でこの更新が作り直した分をまとめて 1 回で
+        EC_SUGAR_LOCK_HELD=1 EC_SUGAR_INTEGRITY_RECORD=skip "$EC_BIN" install-units || ec_warn "新しいツールで unit を入れ直せませんでした（sudo ec-sugar install-units を実行する）"
+        # 中の照らし: この更新が作り直したもの（イメージと設定の指紋・コードの木・確かめたコミットの compose・道具・決まった unit・
+        # イメージの名前と新しく足された設定の名前）だけを控え直す。ほかは前の控えのまま
+        ec_integrity_record always service code compose tools units settings-new env:EC_SUGAR_IMAGE env:SUGAR_EC_IMAGE || true
+        ec_prune_images
+        # すでにある Web サーバーの後ろに置く形は、前の Web サーバーの設定も確かめる（通らなくても戻さない。status に出す）
+        if [ "$(ec_front)" = proxy ]; then
+            ec_check_front || ec_warn "前段のリバースプロキシの確認が通っていません（sudo ec-sugar check-front）"
+        elif [ "$(ec_front)" = tunnel ]; then
+            # Cloudflare Tunnel の形も、接続元の確かめと外を回った確かめを流す（通らなくても戻さない。status に出す）
+            ec_check_tunnel || ec_warn "Cloudflare Tunnel の確認が通っていません（sudo ec-sugar check-front）"
+        fi
+        ec_ok "更新しました: ${cur:0:12} → ${target:0:12}${tag:+（${tag}）}"
+        return 0
+    fi
+
+    ec_step "新しいバージョンがヘルスチェックを通らないので、前のバージョン ${cur:0:12} へロールバックします"
+    ec_dc logs --tail 30 app web >&2 2> /dev/null || true
+    ec_hold "$target"
+    if ec_switch_to "$cur"; then
+        ec_update_mark_clear
+        ec_record rolled_back "$cur" "$target" "新しいバージョンがヘルスチェックを通らなかったので前のバージョンへロールバックした"
+        ec_die "更新できませんでした。前のバージョン ${cur:0:12} へロールバックして動いています（このバージョンは自動では取り込み直しません）" \
+            "sudo ec-sugar logs app web で原因を見る"
+    fi
+    ec_update_mark_clear
+    ec_record failed "$cur" "$target" "新しいバージョンがヘルスチェックを通らず、前のバージョンへロールバックしても通らなかった"
+    ec_die "前のバージョンへロールバックしてもヘルスチェックを通りません（ショップが止まっている恐れがあります）" \
+        "sudo ec-sugar status と sudo ec-sugar logs で状態を見る" \
+        "DB の中身が原因なら sudo ec-sugar rollback --restore-backup $(basename "$(ec_latest_backup || echo '<バックアップの名前>')")"
+}
+
+# ロールバックで DB だけを戻す（写真などのファイルは戻さない。ファイルまで戻すのは ec-sugar restore）。
+# 戻す本体（ロール → 中央 → 店）は ec-sugar restore と同じ部品（ec_restore_databases）
+ec_restore_backup() {
+    local dir="$1"
+    EC_RESTORE_NAME="$(basename "$dir")"
+    EC_RESTORE_DONE=""
+    EC_RESTORE_SAFETY=""
+    # 戻すこと自体も戻せるように、今の DB のバックアップを先に取る（取れなければ何も変えずに止める）
+    # これから戻すバックアップは、バックアップの後の片付け（7 日より古いものを消す）から外す
+    EC_BACKUP_PROTECT="$dir"
+    ec_backup "バックアップから戻す前（${EC_RESTORE_NAME} へ）" 0 || ec_die "今の DB のバックアップを取れないので、戻すのを止めました（何も変えていません）" "sudo ec-sugar backup で原因を見る"
+    EC_RESTORE_SAFETY="$(basename "$EC_BACKUP_LAST")"
+    ec_say "app・リバースプロキシ・キュー・定期の処理を止めます"
+    ec_dc stop app queue scheduler web > /dev/null 2>&1
+    ec_restore_databases "$dir" || ec_restore_fail "DB を戻せませんでした（sudo ec-sugar logs db で原因を見る）"
+    ec_ok "DB をバックアップ ${EC_RESTORE_NAME} の時点へ戻した"
+}
+
+cmd_rollback() {
+    local restore="" yes=0 cur prev dir answer btime bcommit
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --restore-backup) [ $# -ge 2 ] || ec_die "--restore-backup の後にバックアップの名前を書く（sudo ls ${EC_BACKUP}）"; restore="$2"; shift 2 ;;
+            --restore-backup=*) restore="${1#--restore-backup=}"; shift ;;
+            --yes) yes=1; shift ;;
+            *) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+        esac
+    done
+    ec_require_root
+    ec_require_installed
+    cur="$(ec_state_get current_commit || true)"
+    prev="$(ec_state_get previous_commit || true)"
+    ec_valid_commit "$prev" || ec_die "ロールバックする先のバージョンがありません（まだ 1 回も更新していない）"
+
+    if [ -n "$restore" ]; then
+        [[ "$restore" =~ ^[0-9]{8}-[0-9]{6}$ ]] || ec_die "バックアップの名前は 20261029-041500 の形です（sudo ls ${EC_BACKUP}）"
+        dir="$EC_BACKUP/$restore"
+        [ -e "$dir/.complete" ] || ec_die "バックアップ $restore が無いか、途中で切れています（sudo ls ${EC_BACKUP}）"
+        ec_restore_check_backup "$dir" || ec_die "バックアップ $restore をそのまま戻せません（上の行。何も変えていません）"
+        btime="$(ec_kv_get "$dir/manifest" time || true)"
+        bcommit="$(ec_kv_get "$dir/manifest" commit || true)"
+        printf '\n%s最後の手段です%s: DB の中身をバックアップ %s（%s、バージョン %s）の時点へ戻します。\n' "$EC_C_ERR" "$EC_C_END" "$restore" "$btime" "${bcommit:0:12}"
+        printf '   - このバックアップの後に入った注文・会員・商品・設定・管理者の変更は、すべて消えます（戻せません）\n'
+        printf '   - 写真などのファイル（storage）は戻りません（ファイルまで戻すのは sudo ec-sugar restore）。バックアップの後に作った店の DB は残ります\n'
+        printf '   - バージョンは %s から %s へロールバックします\n' "${cur:0:12}" "${prev:0:12}"
+        [ "$bcommit" = "$prev" ] || ec_warn "このバックアップはバージョン ${bcommit:0:12} のときのものです（ロールバックする先のバージョン ${prev:0:12} と違う）"
+        if [ "$yes" -ne 1 ]; then
+            [ -t 0 ] || ec_die "確認の入力を受け取れません" "端末から実行するか、内容を確認したうえで --yes を付ける"
+            read -r -p "   よければバックアップの名前（${restore}）を打ってください: " answer
+            [ "$answer" = "$restore" ] || ec_die "名前が違うので止めました（何も変えていません）"
+        fi
+    fi
+
+    ec_lock
+    ec_report_at_exit
+    ec_env_migrate || ec_die "設定の env に新しい名前の行を足せないので、ロールバックを始めませんでした（何も変えていません）" "sudo ls -l $EC_ENV_FILE と df -h $EC_ENV_DIR で権限と空き容量を見る"
+    # 前の更新が途中で止まっていれば、先にそろえる（記録の今のバージョンと、動いているものを合わせてから戻す）
+    update_interrupted
+    cur="$(ec_state_get current_commit || true)"
+    prev="$(ec_state_get previous_commit || true)"
+    ec_valid_commit "$prev" || ec_die "ロールバックする先のバージョンがありません（まだ 1 回も更新していない）"
+    ec_step "前のバージョンへロールバック: ${cur:0:12} → ${prev:0:12}"
+    [ -z "$restore" ] || ec_restore_backup "$dir"
+    if ec_switch_to "$prev"; then
+        ec_state_put previous_commit "$cur"
+        ec_state_put current_commit "$prev"
+        # 公開版の形のバージョン（タグ）も入れ替える
+        local cur_version prev_version
+        cur_version="$(ec_state_get current_version || true)"
+        prev_version="$(ec_state_get previous_version || true)"
+        if [ -n "$cur_version$prev_version" ]; then
+            ec_state_put current_version "$prev_version"
+            ec_state_put previous_version "$cur_version"
+        fi
+        ec_hold "$cur"
+        ec_record manual_rollback "$cur" "$prev" "手動で前のバージョンへロールバックした${restore:+（DB もバックアップ $restore から戻した）}"
+        # 中の照らしのあるべき姿を、ロールバックした先（確かめたコミットの compose とイメージ）で控え直す
+        ec_integrity_record always service code compose env:EC_SUGAR_IMAGE env:SUGAR_EC_IMAGE || true
+        ec_ok "前のバージョン ${prev:0:12} へロールバックしました。${cur:0:12} は自動の更新では取り込み直しません（もう一度 rollback すると ${cur:0:12} へ進みます）"
+        return 0
+    fi
+    # 戻せなかったら、記録の今のバージョンへ戻し直す（作業場所と env が前のバージョン・記録が今のバージョン、とずれたままにしない。中）。
+    # DB をバックアップから戻した時は、戻した DB で今のバージョンが動くとは限らないので、戻し直さずに知らせる
+    if [ -z "$restore" ]; then
+        ec_warn "前のバージョン ${prev:0:12} がヘルスチェックを通らないので、${cur:0:12} へ戻し直します"
+        if (ec_switch_to "$cur"); then
+            ec_record failed "$cur" "$prev" "手動で前のバージョンへロールバックしようとしたがヘルスチェックを通らなかったので、元のバージョンへ戻し直した"
+            ec_die "前のバージョン ${prev:0:12} がヘルスチェックを通らないので、元のバージョン ${cur:0:12} へ戻し直しました（動いています）" "sudo ec-sugar logs で原因を見る"
+        fi
+    fi
+    ec_record failed "$cur" "$prev" "手動で前のバージョンへロールバックしようとしたがヘルスチェックを通らなかった"
+    ec_die "前のバージョンへロールバックしましたがヘルスチェックを通りません" "sudo ec-sugar logs で原因を見る"
+}
+
+cmd_backup() {
+    local reason="手で" files=1
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --reason) [ $# -ge 2 ] || ec_die "--reason の後に一言"; reason="$2"; shift 2 ;;
+            --no-files) files=0; shift ;;
+            *) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+        esac
+    done
+    ec_require_root
+    ec_require_installed
+    ec_lock
+    ec_report_at_exit
+    ec_env_migrate || ec_warn "設定の env に新しい名前の行を足せませんでした（前の名前のまま読むので、バックアップは続ける）"
+    ec_backup "$reason" "$files" || ec_die "バックアップを取れませんでした" "sudo ec-sugar status と sudo ec-sugar logs db で状態を見る（ディスクの空き: df -h ${EC_BACKUP}）"
+    # サーバーの外へ送る分の控えを作る（置き場を設定したサーバーだけ。送るのは錠の外の ec-sugar-offsite.timer。ADR 0110）。
+    # 毎朝と手で取ったバックアップだけ（更新の前・戻す前のバックアップは送らない）。作れなくても、バックアップの結果は変えない
+    if ! ec_offsite_stage "${EC_BACKUP_LAST:-}"; then
+        ec_warn "サーバーの外へ送る分のバックアップを作れませんでした（このバックアップは送られません。df -h ${EC_ROOT} と sudo ec-sugar offsite status で見る）"
+    fi
+}
+
+# サーバーの外のバックアップ（ADR 0110）。置き場（S3 互換）を設定したサーバーだけが使う
+#   offsite status   設定・溜まっている控え・最後の結果を見せる（何も変えない・外へつながない）
+#   offsite test     置き場に小さな印を置けるか・公開鍵で暗号化できるか・（確かめを入れていれば）置き場が上書きと削除を断るかを確かめる
+#   offsite run      連鎖の先頭と溜まった控えを送る（ec-sugar-offsite.timer が 10 分ごと。設定が無ければ黙って終わる）
+#   offsite pull     置き場から取って開き、バックアップの置き場に広げる（戻す先の機械で）
+cmd_offsite() {
+    local sub="${1:-status}"
+    [ $# -eq 0 ] || shift
+    case "$sub" in
+        status) offsite_status ;;
+        test) offsite_test ;;
+        run)
+            ec_require_root
+            ec_require_installed
+            [ $# -eq 0 ] || [ "$*" = --retry ] || ec_die "知らない引数です: $*" "sudo ec-sugar offsite run [--retry]"
+            # 部品は返りの番号で失敗を伝える形なので、if で受ける（途中の偽で抜けない）
+            set -- "${1:-}"
+            # 結果が前の回と変わった時だけ、運営の様子へ渡す（失敗・長く送れていない・ロックが効いていないを、管理画面とメールで知らせる）
+            local before rc
+            before="$(ec_offsite_report_key)"
+            if ec_offsite_run "${1#--}"; then rc=0; else rc=1; fi
+            ec_offsite_report_if_changed "$before" || true
+            [ "$rc" -eq 0 ] || exit 1
+            return 0
+            ;;
+        pull) offsite_pull "$@" ;;
+        *) ec_die "知らない使い方です: offsite $sub" "sudo ec-sugar offsite status・test・run・pull" ;;
+    esac
+}
+offsite_status() {
+    local d names="" f="$EC_STATE/offsite" v
+    ec_require_root
+    ec_require_installed
+    if ! ec_offsite_configured; then
+        printf 'サーバーの外のバックアップ  設定していません\n'
+        printf '  使うには、設定ファイルに OFFSITE_ENDPOINT・OFFSITE_BUCKET・OFFSITE_KEY_FILE・OFFSITE_RECIPIENT_FILE を書いて sudo ./deploy/install.sh を再実行する\n'
+        return 0
+    fi
+    ec_offsite_conf_load
+    printf 'サーバーの外のバックアップ\n'
+    printf '  ストレージ      %s のバケット %s（名前の頭は db・files・heads の下の %s）\n' "${EC_OFFSITE_ENDPOINT:--}" "${EC_OFFSITE_BUCKET:--}" "${EC_OFFSITE_PREFIX:--}"
+    ec_offsite_conf_check || printf '  %s注意%s            %s（%s を直す）\n' "$EC_C_WARN" "$EC_C_END" "$EC_OFFSITE_PROBLEM" "$EC_ANSWERS"
+    if [ "$EC_OFFSITE_ENCRYPT" = no ]; then
+        printf '  暗号化          %sしない%s（OFFSITE_ENCRYPT=no。ストレージのアクセスキーを持つ人は中身を読める）\n' "$EC_C_WARN" "$EC_C_END"
+    elif [ -r "$EC_OFFSITE_DIR/recipient.asc" ]; then
+        printf '  暗号化          する（公開鍵 %s。秘密鍵はこのサーバーに置かない）\n' "$EC_OFFSITE_DIR/recipient.asc"
+        printf '  公開鍵の指紋    %s（手元の鍵の指紋と同じかを確認する）\n' "$(ec_offsite_recipient_fpr "$EC_OFFSITE_DIR/recipient.asc" || printf '読めません')"
+    else
+        printf '  暗号化          %s公開鍵がありません%s（%s。送りません）\n' "$EC_C_ERR" "$EC_C_END" "$EC_OFFSITE_DIR/recipient.asc"
+    fi
+    printf '  ロックの確認    %s\n' "$([ "$EC_OFFSITE_LOCK_CHECK" = yes ] && echo '送れた回ごとに、db・files・heads に置いた印の上書きと削除が断られるかを見る' || echo 'しない（OFFSITE_LOCK_CHECK=yes で入れる）')"
+    systemctl is-active --quiet ec-sugar-offsite.timer 2> /dev/null || printf '  %s注意%s            送るタイマー（ec-sugar-offsite.timer）が動いていません（sudo systemctl start ec-sugar-offsite.timer。無ければ sudo ec-sugar install-units）\n' "$EC_C_WARN" "$EC_C_END"
+    ! ec_is_isolated || printf '  %s注意%s            隔離した複製環境なので、送りません\n' "$EC_C_WARN" "$EC_C_END"
+    ec_offsite_curl_ok || printf '  %s注意%s            この curl（%s）では送れません（%s 以上が要る）\n' "$EC_C_WARN" "$EC_C_END" "$(ec_offsite_curl_version)" "$EC_OFFSITE_CURL_MIN"
+    for d in "$EC_OFFSITE_WORK"/stage/*/; do
+        [ -d "$d" ] || continue
+        case "$(ec_offsite_retry_state "${d%/}")" in
+            wait) names="$names $(basename "$d")（送れず、間を空けている）" ;;
+            gave-up) names="$names $(basename "$d")（${EC_OFFSITE_TRIES_MAX} 回送れず、あきらめた。sudo ec-sugar offsite run --retry）" ;;
+            *) names="$names $(basename "$d")" ;;
+        esac
+    done
+    printf '  まだ送っていない%s\n' "$([ -n "$names" ] && printf '%s' "$names" || printf ' 無し')"
+    if [ -r "$f" ]; then
+        v="$(ec_kv_get "$f" offsite || true)"
+        case "$v" in
+            ok) printf '  最後の回        送れた（%s）\n' "$(ec_kv_get "$f" offsite_tried_at || true)" ;;
+            failed) printf '  最後の回        %s失敗%s（%s。理由 %s）\n' "$EC_C_ERR" "$EC_C_END" "$(ec_kv_get "$f" offsite_tried_at || true)" "$(ec_kv_get "$f" reason || true)" ;;
+        esac
+        v="$(ec_kv_get "$f" last_backup || true)"
+        [ -z "$v" ] || printf '  最後に送れた    バックアップ %s（%s）\n' "$v" "$(ec_kv_get "$f" offsite_at || true)"
+        case "$(ec_kv_get "$f" offsite_lock || true)" in
+            ok) printf '  ストレージのロック  効いている（上書きと削除が断られた）\n' ;;
+            open) printf '  ストレージのロック  %s効いていません%s（置いた印の上書きか削除が通った。ストレージの画面で、オブジェクトロックのルールを確認する）\n' "$EC_C_ERR" "$EC_C_END" ;;
+            unknown) printf '  ストレージのロック  確認できませんでした（sudo ec-sugar offsite test）\n' ;;
+        esac
+        case "$(ec_kv_get "$f" offsite_heads || true)" in
+            ok) printf '  ハッシュチェーンの先頭  送れている（%s）\n' "$(ec_kv_get "$f" offsite_heads_at || true)" ;;
+            failed) printf '  ハッシュチェーンの先頭  %s送れていません%s（最後に送れたのは %s）\n' "$EC_C_ERR" "$EC_C_END" "$(ec_kv_get "$f" offsite_heads_at || echo -)" ;;
+        esac
+    else
+        printf '  最後の回        まだ送っていません（次の ec-sugar backup の後に送る）\n'
+    fi
+    return 0
+}
+offsite_test() {
+    local rc=0
+    ec_require_root
+    ec_require_installed
+    ec_offsite_configured || ec_die "サーバーの外のバックアップを設定していません" "設定ファイルに OFFSITE_… を書いて sudo ./deploy/install.sh を再実行する"
+    # 隔離した写し（復元の訓練）から、本物の置き場に消せない印を置かない
+    ! ec_is_isolated || ec_die "隔離した複製環境なので、ストレージへは何も置きません（確認は本物のサーバーで）"
+    ec_offsite_conf_load
+    ec_offsite_conf_check || ec_die "サーバーの外へのバックアップの設定が読めません: ${EC_OFFSITE_PROBLEM}" "$EC_ANSWERS を直す"
+    ec_offsite_curl_ok || ec_die "この curl（$(ec_offsite_curl_version)）では S3 互換のストレージへ送れません（${EC_OFFSITE_CURL_MIN} 以上が要る）" \
+        "Ubuntu 22.04 の curl（7.81）は、署名に要るヘッダーを付けられず、どのリクエストもストレージに断られる。Ubuntu 24.04 以降のサーバーで使う"
+    ec_ok "curl $(ec_offsite_curl_version)"
+    if [ "$EC_OFFSITE_ENCRYPT" = yes ]; then
+        ec_offsite_recipient_ok "$EC_OFFSITE_DIR/recipient.asc" || ec_die "公開鍵（$EC_OFFSITE_DIR/recipient.asc）で暗号化できません（無い・gpg の公開鍵でない・期限が切れている）" \
+            "設定ファイルの OFFSITE_RECIPIENT_FILE に公開鍵のファイルを書いて sudo ./deploy/install.sh を再実行する"
+        ec_ok "公開鍵で暗号化できる（キーリングには取り込まない）。指紋 $(ec_offsite_recipient_fpr "$EC_OFFSITE_DIR/recipient.asc" || printf '読めません')（手元の鍵の指紋と同じかを確認する）"
+    else
+        ec_warn "暗号化しない設定です（OFFSITE_ENCRYPT=no）。ストレージのアクセスキーを持つ人は、バックアップの中の個人情報を読めます"
+    fi
+    install -d -m 0700 -o root -g root "$EC_OFFSITE_WORK"
+    ec_lock_dir || ec_die "ロックのディレクトリを作れません"
+    exec 8> "$EC_OFFSITE_LOCK"
+    flock -n 8 || ec_die "いま送っている回があります" "終わるのを待ってから再実行する（sudo systemctl status ec-sugar-offsite.service）"
+    ec_offsite_sweep
+    if [ "$EC_OFFSITE_LOCK_CHECK" = yes ]; then
+        ec_offsite_lock_probe || ec_die "ストレージに印を置けません（ストレージの応答 ${EC_OFFSITE_HTTP}）" "エンドポイント（OFFSITE_ENDPOINT）・バケット（OFFSITE_BUCKET）・鍵の権限（このバケットに書ける）を確認する。000 は届いていない"
+        ec_ok "ストレージに書ける（${EC_OFFSITE_PROBE_KEY}）"
+        case "$EC_OFFSITE_LOCK_WORD" in
+            ok) ec_ok "ストレージは、db/・files/・heads/ に置いた印の上書きと削除を断った（オブジェクトロックのルールが 3 つのプレフィックスに効いている）" ;;
+            open) ec_warn "ストレージが、置いた印の上書きか削除を断りませんでした（オブジェクトロックのルールが db/・files/・heads/ のどれかに掛かっていない。ストレージの画面で確認する）"; rc=1 ;;
+            *) ec_warn "ストレージのロックを確認できませんでした（上書きか削除への応答が、断り〔409〕でも成功でもない）"; rc=1 ;;
+        esac
+    else
+        ec_offsite_lock_probe put-only || ec_die "ストレージに印を置けません（ストレージの応答 ${EC_OFFSITE_HTTP}）" "エンドポイント（OFFSITE_ENDPOINT）・バケット（OFFSITE_BUCKET）・鍵の権限（このバケットに書ける）を確認する。000 は届いていない"
+        ec_ok "ストレージに書ける（${EC_OFFSITE_PROBE_KEY}）"
+        ec_say "ストレージのロックの確認は入れていません（OFFSITE_LOCK_CHECK=yes で、上書きと削除が断られるかを見る）"
+    fi
+    # このサーバーの鍵で読めるか（確かめの時だけ。送る回は読まない）。読めても誤りではない（書くだけの鍵を作れない置き場がある）が、知らせる
+    install -d -m 0700 "$EC_OFFSITE_WORK/tmp"
+    # （印が上の確かめで消えていれば 404。断り〔403〕の時だけ「書くだけの鍵」と言う）
+    if EC_OFFSITE_GET_MAX=1024 ec_offsite_request GET "/$EC_OFFSITE_PROBE_KEY" "$EC_OFFSITE_WORK/tmp/probe.get"; then
+        ec_say "このサーバーの鍵でストレージを読めます（書き込み専用のアクセスキーを作れないストレージではそうなる）。中身を守るのは暗号化で、読み取り用のアクセスキーと秘密鍵はこのサーバーに置かない"
+    elif [ "$EC_OFFSITE_HTTP" = 403 ]; then
+        ec_ok "このサーバーの鍵ではストレージを読めない（書き込み専用のアクセスキー）"
+    fi
+    rm -rf "$EC_OFFSITE_WORK/tmp"
+    return "$rc"
+}
+offsite_pull() {
+    local name="" latest=0 list=0 cred="" key="" pass="" files=1 endpoint="" bucket="" prefix="" region="" have_key=0 sets kind sent at flag want_sent="" got
+    local kit="" kit_pass="" locked=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --latest) latest=1; shift ;;
+            --list) list=1; shift ;;
+            --no-files) files=0; shift ;;
+            --credentials-file) [ $# -ge 2 ] || ec_die "--credentials-file の後に読み取り用のアクセスキーのファイル"; cred="$2"; shift 2 ;;
+            --decrypt-key-file) [ $# -ge 2 ] || ec_die "--decrypt-key-file の後に秘密鍵のファイル"; key="$2"; shift 2 ;;
+            --passphrase-file) [ $# -ge 2 ] || ec_die "--passphrase-file の後にパスフレーズのファイル"; pass="$2"; shift 2 ;;
+            --sent) [ $# -ge 2 ] || ec_die "--sent の後に送った時刻（--list に出るもの。例 20261119T041733Z）"; want_sent="$2"; shift 2 ;;
+            --endpoint) [ $# -ge 2 ] || ec_die "--endpoint の後にストレージのエンドポイント"; endpoint="$2"; shift 2 ;;
+            --bucket) [ $# -ge 2 ] || ec_die "--bucket の後にバケットの名前"; bucket="$2"; shift 2 ;;
+            --prefix) [ $# -ge 2 ] || ec_die "--prefix の後にサーバーの名前"; prefix="$2"; shift 2 ;;
+            --region) [ $# -ge 2 ] || ec_die "--region の後にリージョン"; region="$2"; shift 2 ;;
+            --kit) [ $# -ge 2 ] || ec_die "--kit の後に復元のキットのファイル"; kit="$2"; shift 2 ;;
+            --kit-passphrase-file) [ $# -ge 2 ] || ec_die "--kit-passphrase-file の後にキットのパスフレーズのファイル"; kit_pass="$2"; shift 2 ;;
+            -*) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+            *) [ -z "$name" ] || ec_die "バックアップの名前は 1 つだけ"; name="$1"; shift ;;
+        esac
+    done
+    # 復元のキットと、ばらの開ける鍵・サーバーの名前の引数は同時に渡せない（どちらを使うかを曖昧にしない）。
+    # 置き場の入口・バケット・読む鍵は、キットに入っていない時（管理画面で作ったキット）だけ一緒に渡す（開いた後に確かめる）
+    if [ -n "$kit" ] && [ -n "$key$pass" ]; then
+        ec_die "--kit と、--decrypt-key-file・--passphrase-file は同時に使えません（何も変えていません）" \
+            "復元のキットで取るなら、秘密鍵はキットの中のものを使う"
+    fi
+    [ -z "$kit_pass" ] || [ -n "$kit" ] || ec_die "--kit-passphrase-file は --kit と一緒に使います"
+    ec_require_root
+    ec_require_installed
+    if [ "$list" -eq 0 ]; then
+        [ -n "$name" ] || [ "$latest" -eq 1 ] || ec_die "取るバックアップの名前（例 20261119-041500）か --latest か --list を付ける" "ストレージにあるものは sudo ec-sugar offsite pull --list --kit <復元のキット>"
+        [ -z "$name" ] || [ "$latest" -eq 0 ] || ec_die "名前と --latest は同時に使えません"
+        [ -z "$name" ] || ec_offsite_valid_name "$name" || ec_die "バックアップの名前の形が違います（例 20261119-041500）"
+        [ -z "$want_sent" ] || ec_offsite_valid_stamp "$want_sent" || ec_die "送った時刻の形が違います（例 20261119T041733Z）"
+        [ -z "$want_sent" ] || [ -n "$name" ] || ec_die "--sent は、バックアップの名前と一緒に使います（--latest とは使えません）"
+    fi
+    [ -n "$kit$cred" ] || ec_die "復元のキットを --kit で渡す（個別の鍵なら、ストレージの読み取り用のアクセスキーのファイルを --credentials-file で。このサーバーに置いてある書き込み用のアクセスキーは使わない）"
+    if [ -n "$kit" ]; then
+        # 開いたキットは錠の置き場の下に置くので、先に取る回の錠を取り、前の回の消し残しを片付けてから開く（終わり・失敗・割り込みで消す）
+        install -d -m 0700 -o root -g root "$EC_OFFSITE_WORK"
+        ec_lock_dir || ec_die "ロックのディレクトリを作れません"
+        exec 8> "$EC_OFFSITE_LOCK"
+        flock -n 8 || ec_die "いま送っている・取っている回があります" "終わるのを待ってから再実行する"
+        locked=1
+        ec_offsite_sweep
+        trap 'ec_kit_drop; ec_offsite_gpg_home_drop; rm -rf "$EC_OFFSITE_WORK/tmp"' EXIT
+        ec_kit_open "$kit" "$kit_pass"
+        if [ -n "$EC_KIT_ENDPOINT" ]; then
+            # 置き場と読む鍵が入ったキット（recovery-kit create で作ったもの）: 全部キットの中のものを使う
+            [ -z "$cred$endpoint$bucket$region$prefix" ] || ec_die "この復元のキットにはストレージと読み取り用のアクセスキーが入っているので、--credentials-file・--endpoint・--bucket・--region・--prefix は同時に使えません（何も変えていません）" \
+                "復元のキットで取るなら --kit だけを付ける（鍵もエンドポイントもキットの中にある）"
+            cred="$EC_KIT_DIR/credentials"
+            endpoint="$EC_KIT_ENDPOINT"
+            bucket="$EC_KIT_BUCKET"
+            region="$EC_KIT_REGION"
+        else
+            # 管理画面で作ったキット: 開ける鍵と APP_KEY だけが入っている。置き場の入口・バケット・読む鍵は別に渡す（読む鍵は置き場の側で作り直せる）
+            [ -n "$cred" ] && [ -n "$endpoint" ] && [ -n "$bucket" ] || ec_die "この復元のキットにはストレージと読み取り用のアクセスキーが入っていません（管理画面で作ったキット。何も変えていません）" \
+                "ストレージの側で読み取り専用のアクセスキーを作り、--credentials-file <読み取り用のアクセスキーのファイル> --endpoint <エンドポイント> --bucket <バケット> を --kit と一緒に付ける（設定ファイルに OFFSITE_PREFIX を書いていたサーバーなら --prefix も）"
+        fi
+        key="$EC_KIT_DIR/decrypt-key.asc"
+        [ ! -e "$EC_KIT_DIR/passphrase" ] || pass="$EC_KIT_DIR/passphrase"
+        # サーバーの名前（置き場の中の道筋の頭）は、キットの中の管理画面のホスト。答えに OFFSITE_PREFIX で別の名前を書いていたサーバーの
+        # バックアップを、置き場の無いキットで取る時だけ、--prefix で渡せる
+        [ -n "$prefix" ] || prefix="$EC_KIT_SERVER"
+    fi
+    ec_offsite_conf_load
+    [ -z "$endpoint" ] || EC_OFFSITE_ENDPOINT="${endpoint%/}"
+    [ -z "$bucket" ] || EC_OFFSITE_BUCKET="$bucket"
+    [ -z "$prefix" ] || EC_OFFSITE_PREFIX="$prefix"
+    [ -z "$region" ] || EC_OFFSITE_REGION="$region"
+    ec_offsite_conf_check || ec_die "ストレージの設定が読めません: ${EC_OFFSITE_PROBLEM}" "復元のキット（--kit）で渡すか、--endpoint・--bucket・--prefix で渡すか、$EC_ANSWERS の OFFSITE_… を直す"
+    ec_offsite_curl_ok || ec_die "この curl（$(ec_offsite_curl_version)）では S3 互換のストレージから取れません（${EC_OFFSITE_CURL_MIN} 以上が要る）" "Ubuntu 24.04 以降のマシンで実行する"
+    EC_OFFSITE_CRED_FILE="$cred"
+    ec_offsite_cred_read "$cred" || { EC_OFFSITE_ID=""; EC_OFFSITE_SECRET=""; ec_die "読み取り用のアクセスキーのファイル $cred が読めないか、形が違います（中身は出しません）" "access_key_id=… と secret_access_key=… の 2 行のファイルを渡す"; }
+    EC_OFFSITE_ID=""
+    EC_OFFSITE_SECRET=""
+    if [ "$locked" -eq 0 ]; then
+        install -d -m 0700 -o root -g root "$EC_OFFSITE_WORK"
+        ec_lock_dir || ec_die "ロックのディレクトリを作れません"
+        exec 8> "$EC_OFFSITE_LOCK"
+        flock -n 8 || ec_die "いま送っている・取っている回があります" "終わるのを待ってから再実行する"
+        ec_offsite_sweep
+        trap 'ec_kit_drop; ec_offsite_gpg_home_drop; rm -rf "$EC_OFFSITE_WORK/tmp"' EXIT
+    fi
+    if [ "$list" -eq 1 ]; then
+        sets="$(ec_offsite_sets)" || ec_die "ストレージの一覧を取れません（ストレージの応答 ${EC_OFFSITE_HTTP}）" "読み取り用のアクセスキー・エンドポイント・バケット・サーバーの名前（--prefix）を確認する"
+        printf 'ストレージのそろっているセット（%s。ストレージの側の時刻の古い順。時刻として信頼するのはストレージの側の時刻で、名前と送った時刻は送る側が書ける）\n' "$EC_OFFSITE_PREFIX"
+        [ -n "$sets" ] || printf '  ありません\n'
+        while IFS=' ' read -r kind name sent at flag; do
+            [ -z "$kind" ] || printf '  %-5s  %s  ストレージの側の時刻 %s（送った時刻 %s）%s\n' "$kind" "$name" "$at" "$sent" \
+                "$([ "$flag" = ok ] || printf '  %s疑わしい%s: 名前・送った時刻・ストレージの側の時刻が食い違う（--latest は選ばない）' "$EC_C_WARN" "$EC_C_END")"
+        done <<< "$sets"
+        ec_say "ストレージの中身に、本物の証しはありません（書き込み用のアクセスキーを持つ人はセットを足せる）。侵入を疑う時は、ストレージの側の時刻が侵入の前のものを名前で選ぶ"
+        return 0
+    fi
+    if [ -n "$key" ]; then
+        [ -f "$key" ] && [ -r "$key" ] || ec_die "秘密鍵のファイル $key が読めません"
+        [ -z "$pass" ] || [ -r "$pass" ] || ec_die "パスフレーズのファイル $pass が読めません"
+        command -v gpg > /dev/null 2>&1 || ec_die "gpg がありません" "sudo apt-get install -y gnupg"
+        EC_OFFSITE_GPG_HOME="$(ec_offsite_gpg_home)" || ec_die "gpg の一時ディレクトリを作れません"
+        "${EC_OFFSITE_GPG[@]}" --homedir "$EC_OFFSITE_GPG_HOME" --import "$key" > /dev/null 2>&1 || ec_die "秘密鍵を読み込めません（gpg の秘密鍵のファイルでない。中身は出しません）"
+        EC_OFFSITE_PASSPHRASE_FILE="$pass"
+        have_key=1
+    fi
+    ec_offsite_pull "$name" "$have_key" "$files" "$want_sent" || ec_die "ストレージからバックアップを取れませんでした（上の行）" "sudo ec-sugar offsite pull --list … でストレージの一覧を見る"
+    got="$EC_BACKUP/$EC_OFFSITE_PULLED"
+    ec_ok "ストレージから取って復号した: ${got}（中の指紋は合っている。$([ -e "$got/$EC_BACKUP_FILES_NAME" ] && echo '写真などのファイルつき' || echo 'DB だけ')）"
+    ec_say "ストレージの側の時刻 ${EC_OFFSITE_PULLED_AT}（送った時刻 ${EC_OFFSITE_PULLED_SENT}）・取った時刻 $(ec_kv_get "$got/manifest" time || echo -)・管理画面 $(ec_kv_get "$got/manifest" admin_host || echo -)"
+    ec_say "ストレージの側の時刻が、戻したい時点（侵入を疑うなら、その前）のものかを確認してから戻す（ストレージの中身に本物の証しは無い）"
+    if [ -n "$kit" ]; then
+        ec_say "戻すには: sudo ec-sugar restore ${EC_OFFSITE_PULLED} --kit ${kit}（APP_KEY は復元のキットの中にある。使い捨ての複製環境なら --isolated を足す）"
+    else
+        ec_say "戻すには: sudo ec-sugar restore ${EC_OFFSITE_PULLED}（使い捨ての複製環境なら --isolated --app-key-file <APP_KEY のファイル>。APP_KEY はストレージに無い）"
+    fi
+}
+
+# バックアップから戻す（ADR 0082）。動いている本番に誤って流さないよう、何を戻すか・このサーバーがどれかを見せ、名前を打たせてから。
+# 確かめ（そろっているか・指紋・名前）と確認は、鍵を取る前に何も変えずに行う
+cmd_restore() {
+    local name="" yes=0 isolated=0 files=1 key_file="" set_key=0 no_files=0 kit="" kit_pass="" kit_server="" host=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --yes) yes=1; shift ;;
+            --isolated) isolated=1; shift ;;
+            --no-files) files=0; shift ;;
+            --app-key-file) [ $# -ge 2 ] || ec_die "--app-key-file の後に APP_KEY のファイル（root だけが読める 0600）を書く"; key_file="$2"; shift 2 ;;
+            --app-key-file=*) key_file="${1#--app-key-file=}"; shift ;;
+            --kit) [ $# -ge 2 ] || ec_die "--kit の後に復元のキットのファイル（root だけが読める 0600）を書く"; kit="$2"; shift 2 ;;
+            --kit=*) kit="${1#--kit=}"; shift ;;
+            --kit-passphrase-file) [ $# -ge 2 ] || ec_die "--kit-passphrase-file の後にキットのパスフレーズのファイル（root だけが読める 0600）を書く"; kit_pass="$2"; shift 2 ;;
+            --kit-passphrase-file=*) kit_pass="${1#--kit-passphrase-file=}"; shift ;;
+            -*) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+            *) [ -z "$name" ] || ec_die "戻すバックアップの名前は 1 つだけ書く"; name="$1"; shift ;;
+        esac
+    done
+    [ -n "$name" ] || ec_die "戻すバックアップの名前を書く" "sudo ls ${EC_BACKUP} で見て、例 sudo ec-sugar restore 20261107-041500"
+    # APP_KEY の渡し方は 1 つだけ（復元のキットか、ばらのファイルか。どちらを使うかを曖昧にしない）
+    [ -z "$kit" ] || [ -z "$key_file" ] || ec_die "--kit と --app-key-file は同時に使えません（何も変えていません）" "APP_KEY を復元のキットから読むなら --kit だけを付ける"
+    [ -z "$kit_pass" ] || [ -n "$kit" ] || ec_die "--kit-passphrase-file は --kit と一緒に使います"
+    ec_require_root
+    ec_require_installed
+    [[ "$name" =~ ^[0-9]{8}-[0-9]{6}$ ]] || ec_die "バックアップの名前は 20261107-041500 の形です（sudo ls ${EC_BACKUP}）"
+    local dir="$EC_BACKUP/$name"
+    [ -d "$dir" ] || ec_die "バックアップ $name がありません（sudo ls ${EC_BACKUP}）" "別のマシンで取ったものは ${EC_BACKUP}/ の下に、名前を変えずに root の 0700 で置く（docs/development/restore-drill.md）"
+    [ "$isolated" -eq 0 ] || ec_isolate_precheck
+    if [ -n "$key_file" ]; then
+        ec_restore_key_read "$key_file"
+        set_key=1
+    elif [ -n "$kit" ]; then
+        # 復元のキットから APP_KEY だけを読み、開いた中身はすぐ消す（止まった時・割り込みの時も）
+        trap 'ec_kit_drop' EXIT
+        ec_kit_open "$kit" "$kit_pass"
+        ec_restore_key_read "$EC_KIT_DIR/app-key"
+        kit_server="$EC_KIT_SERVER"
+        ec_kit_drop
+        trap - EXIT
+        set_key=1
+        # 別のサーバーのキットの APP_KEY では、戻した個人情報を開けない（置き場の中の名前を変えているサーバーでは違ってよいので、止めずに知らせる）
+        host="$(ec_kv_get "$dir/manifest" admin_host 2> /dev/null || true)"
+        if [ -n "$host" ] && [ "$host" != "$kit_server" ]; then
+            ec_warn "復元のキットのサーバーの名前（${kit_server}）が、このバックアップの管理画面（${host}）と違います（別のサーバーのキットなら、APP_KEY が違って個人情報を開けません）"
+        fi
+    fi
+    ec_step "バックアップ $name を確認する（まだ何も変えない）"
+    ec_restore_check_backup "$dir" || ec_die "バックアップ $name をそのまま戻せません（上の行。何も変えていません）"
+    ec_ok "そろっている$([ -e "$dir/SHA256SUMS" ] && printf '（指紋も取った時のまま）' || true)"
+    # 写真などのファイルの無い世代（写真は新しい 3 世代だけ。古い世代と更新の前のバックアップは DB だけ）は、--no-files と同じ扱いで DB だけを戻す
+    if [ "$files" = 1 ] && [ ! -e "$dir/$EC_BACKUP_FILES_NAME" ]; then
+        files=0
+        no_files=1
+    fi
+    restore_confirm "$dir" "$isolated" "$files" "$yes" "$set_key" "$no_files"
+    ec_lock
+    ec_report_at_exit
+    ec_env_migrate || ec_die "設定の env に新しい名前の行を足せないので、戻すのを始めませんでした（何も変えていません）" "sudo ls -l $EC_ENV_FILE と df -h $EC_ENV_DIR で権限と空き容量を見る"
+    ec_restore_run "$dir" "$isolated" "$files" "$set_key"
+    # 隔離した写しは compose に重ねるファイルが増える。中の照らしで違いが出ていなければ、あるべき姿を控え直す
+    ec_integrity_record if-ok settings compose service-config || true
+}
+
+# 答えを打てる端末から流しているか（docker/check-restore.sh が差し替えて、打ち間違いの道を確かめる）
+stdin_is_tty() { [ -t 0 ]; }
+
+# 何を戻すか・このサーバーがどれかを見せて、バックアップの名前を打たせる（--yes で飛ばす。端末でなければ --yes が要る）
+restore_confirm() {
+    local dir="$1" isolated="$2" files="$3" yes="$4" set_key="$5" no_files="${6:-0}" name btime breason bcommit bshops bhost cur prefix now_shops answer
+    name="$(basename "$dir")"
+    btime="$(ec_kv_get "$dir/manifest" time || true)"
+    breason="$(ec_kv_get "$dir/manifest" reason || true)"
+    bcommit="$(ec_kv_get "$dir/manifest" commit || true)"
+    bshops="$(ec_kv_get "$dir/manifest" shops || true)"
+    [[ "$bshops" =~ ^[0-9]+$ ]] || bshops="$(($(find "$dir" -maxdepth 1 -name '*.dump' | wc -l) - 1))"
+    bhost="$(ec_kv_get "$dir/manifest" admin_host || true)"
+    cur="$(ec_state_get current_commit || true)"
+    prefix="$(ec_env_get TENANT_DB_PREFIX)"
+    # 標準入力は渡さない（docker compose exec は標準入力を読み、先に打たれた答えを食べてしまう）
+    now_shops="$(ec_dc exec -T db psql -U ec -d postgres -Atc "SELECT count(*) FROM pg_database WHERE left(datname, length('$prefix')) = '$prefix'" < /dev/null 2> /dev/null || echo '?')"
+    printf '\n%sバックアップから戻します%s\n' "$EC_C_ERR" "$EC_C_END"
+    printf '   戻すバックアップ  %s（取った時刻 %s、理由 %s、バージョン %s%s）\n' "$name" "${btime:--}" "${breason:--}" "${bcommit:0:12}" "${bhost:+、管理画面 $bhost}"
+    printf '   中身              中央の DB と店の DB %s 個（店 %s つ）・%s\n' "$bshops" "$bshops" \
+        "$([ -e "$dir/$EC_BACKUP_FILES_NAME" ] && printf '写真などのファイル %s MB' "$(($(du -sk "$dir/$EC_BACKUP_FILES_NAME" | cut -f1) / 1024))" || printf '写真などのファイルは入っていない（DB だけ）')"
+    printf '   このサーバー      %s（%s・%s）、今の店の DB %s 個、バージョン %s%s\n' "$(ec_env_get EC_SUGAR_ADMIN_HOST)" "$(ec_mode)" "$(ec_front)" "$now_shops" "${cur:0:12}" \
+        "$(ec_is_isolated && printf '、隔離した複製環境' || true)"
+    printf '   - このサーバーの DB%s を、すべてバックアップの時点に置き換えます。バックアップの後に入った注文・会員・商品・設定%s は消えます\n' \
+        "$([ "$files" = 1 ] && [ -e "$dir/$EC_BACKUP_FILES_NAME" ] && printf 'と写真などのファイル' || true)" "$([ "$files" = 1 ] && [ -e "$dir/$EC_BACKUP_FILES_NAME" ] && printf '・写真' || true)"
+    if [ "$no_files" -eq 1 ]; then
+        printf '   - %sこのバックアップには写真などのファイルがありません%s（写真は新しい %s 世代だけ残す。古い世代と更新の前のバックアップは DB だけ）。\n' "$EC_C_WARN" "$EC_C_END" "$EC_BACKUP_FILES_KEEP"
+        printf '     DB だけを戻し、今の写真などのファイルはそのまま残します（--no-files と同じ）。DB と写真の時点がずれるので、写真の見つからない商品は restore-check に出ます\n'
+    elif [ "$files" -eq 0 ]; then
+        printf '   - --no-files なので DB だけを戻し、今の写真などのファイルはそのまま残します\n'
+    fi
+    printf '   - 先に今の状態のバックアップを取ります（戻し直せる）。戻している間はショップと管理画面が止まります\n'
+    [ "$set_key" -eq 0 ] || printf '   - env の APP_KEY を、渡したファイル（復元のキットか APP_KEY のファイル）の鍵に替えます（店の個人情報の鍵を開ける。取ったサーバーと同じ鍵）\n'
+    if [ "$isolated" -eq 1 ]; then
+        printf '   - %sこのサーバーを隔離した複製環境にします%s: app・キュー・定期の処理から外へ出るネットワークを外し、メールは %s、外のサービスの鍵を空に、定期の処理を止めます。\n' \
+            "$EC_C_WARN" "$EC_C_END" "$([ "$(ec_mode)" = staging ] && echo 'Mailpit へ' || echo '送らない')"
+        printf '     元に戻す道はありません。複製環境には本番の個人情報が載るので、確認し終わったら VM ごと消します\n'
+    elif [ "$(ec_front)" = tunnel ] || [ "$(ec_mode)" = production ]; then
+        printf '   - %sこのサーバーは本番の構成です%s。本番をバックアップの時点へ戻すのは最後の手段です（複製環境で試すなら、使い捨ての VM で --isolated）\n' "$EC_C_ERR" "$EC_C_END"
+    fi
+    if [ -n "$bhost" ] && [ "$isolated" -eq 0 ] && [ "$bhost" != "$(ec_env_get EC_SUGAR_ADMIN_HOST)" ]; then
+        ec_warn "このバックアップは別のサーバー（管理画面 ${bhost}）で取ったものです（隔離せずに戻すと、複製環境が本番と同じように外へ送ります。複製環境なら --isolated）"
+    fi
+    if [ -n "$bcommit" ] && [ -n "$cur" ] && [ "$bcommit" != "$cur" ]; then
+        if ec_git merge-base --is-ancestor "$bcommit" "$cur" 2> /dev/null; then
+            ec_say "バックアップは前のバージョン（${bcommit:0:12}）のものです。戻した後に今のバージョン（${cur:0:12}）へマイグレーションします"
+        else
+            ec_warn "バックアップのバージョン ${bcommit:0:12} は、今のバージョン ${cur:0:12} より新しいか、履歴がつながっているかが分かりません（前のバージョンは新しい DB の形を知らないことがある。sudo ec-sugar update --to ${bcommit:0:12} で同じバージョンにしてから戻すのが確か）"
+        fi
+    fi
+    if [ "$yes" -ne 1 ]; then
+        stdin_is_tty || ec_die "確認の入力を受け取れません（何も変えていません）" "端末から実行するか、上の内容を確認したうえで --yes を付ける"
+        read -r -p "   よければバックアップの名前（${name}）を打ってください: " answer
+        [ "$answer" = "$name" ] || ec_die "名前が違うので止めました（何も変えていません）"
+    fi
+}
+
+# 戻した後の数を見る（読むだけ。本番でも流してよい）
+cmd_restore_check() {
+    local args=() heads=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --verify) args+=(--verify); shift ;;
+            --heads) [ $# -ge 2 ] || ec_die "--heads にファイルを指定してください" "sudo ec-sugar restore-check --heads <ストレージの heads/ から取った .tsv>"; heads="$2"; shift 2 ;;
+            *) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+        esac
+    done
+    ec_require_root
+    ec_require_installed
+    if [ -n "$heads" ]; then
+        ec_check_chain_heads_file "$heads"
+        return $?
+    fi
+    ec_dc exec -T app php artisan operations:restore-check ${args[@]+"${args[@]}"}
+}
+
+# タイマーの次の時刻を、定期の仕事の時刻の帯で
+next_run() {
+    local at
+    # systemctl はサーバーの時刻の帯で書くので、UTC で書かせてから読み直す（例 "Thu 2026-10-29 18:30:00 UTC"）
+    at="$(TZ=UTC systemctl show "$1" -p NextElapseUSecRealtime --value 2> /dev/null || true)"
+    # 時刻の形（例 Thu 2026-10-29 18:30:00 UTC）のときだけ読む。空や n/a を date に渡すと「今日の 0 時」と読まれる
+    if [[ "$at" =~ ^[A-Z][a-z]{2}\ ([0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}\ UTC)$ ]]; then
+        at="$(date -d "${BASH_REMATCH[1]}" +%s 2> /dev/null || true)"
+    else
+        at=""
+    fi
+    if [[ "$at" =~ ^[0-9]+$ ]]; then
+        TZ="$(ec_timezone)" date -d "@$at" '+%Y-%m-%d %H:%M %Z'
+    else
+        printf -- '-'
+    fi
+}
+
+# ホストの防火壁が入っているか（今ある網の bridge ごとに iptables -C で見る）。足りなければ ✗ と直し方
+status_firewall() {
+    local bridges missing lan
+    if ! bridges="$(ec_bridges)"; then
+        printf '  ホストのファイアウォール  %s✗ Docker にネットワークの一覧を聞けません%s（ルールを確認できない。sudo systemctl status docker で見る）\n' "$EC_C_ERR" "$EC_C_END"
+        return 0
+    fi
+    missing="$(ec_bridge_guard_missing)"
+    lan="$(ec_lan_only_missing)"
+    if [ -z "$bridges" ]; then
+        printf '  ホストのファイアウォール  ネットワークがまだありません（EC-SUGAR が起動していない。起動すると適用する）\n'
+    elif [ -z "$missing" ] && [ -z "$lan" ]; then
+        printf '  ホストのファイアウォール  %s✓%s ネットワーク %s 個に、root でない利用者からコンテナへ・コンテナからホストへ届かないルール（%s）%s\n' "$EC_C_OK" "$EC_C_END" \
+            "$(printf '%s\n' "$bridges" | wc -l | tr -d ' ')" "$(ec_fw_tools | tr '\n' ' ' | sed 's/ $//; s/ /・/g')" \
+            "$(ec_lan_only_wanted && echo "、待ち受けの 80・443 番は $(ec_answer LAN_CIDR 2> /dev/null || true) だけ" || true)"
+    else
+        printf '  ホストのファイアウォール  %s✗ ルールが足りません%s（%s）\n' "$EC_C_ERR" "$EC_C_END" \
+            "$( { printf '%s\n' "$missing"; [ -z "$lan" ] || printf '%s\n' "$lan" | sed 's/^/DOCKER-USER の待ち受け /'; } | awk 'NF {out = out (out == "" ? "" : "、") $0} END {printf "%s", out}')"
+        printf '                  直し方: sudo ec-sugar firewall（Plesk のファイアウォールの適用・iptables の作り直し・ufw の reload で消えることがある。次の更新の確認でも再適用する）\n'
+    fi
+}
+
+# Cloudflare Tunnel の形の cloudflared の様子（ADR 0052）。Cloudflare につながっていれば healthy（cloudflared tunnel ready）
+status_tunnel() {
+    local state check
+    state="$(ec_tunnel_state)"
+    check="$(ec_state_get front_check 2> /dev/null || true)"
+    case "$state" in
+        "running healthy") printf '  Cloudflare Tunnel  %s✓%s cloudflared が動いていて Cloudflare に接続している（running healthy）\n' "$EC_C_OK" "$EC_C_END" ;;
+        "") printf '  Cloudflare Tunnel  %s✗ cloudflared のコンテナがありません%s（sudo systemctl start ec-sugar で起動する。compose に docker-compose.tunnel.yml が重なっているかは sudo ec-sugar logs cloudflared）\n' "$EC_C_ERR" "$EC_C_END" ;;
+        *) printf '  Cloudflare Tunnel  %s✗ cloudflared が %s%s（Cloudflare に接続していない。トークンと外への 7844 番を見る。sudo ec-sugar logs cloudflared）\n' "$EC_C_ERR" "$state" "$EC_C_END" ;;
+    esac
+    # 最後の接続元と外を回った確かめ（sudo ec-sugar check-front・5/5・更新の後）の結果
+    case "${check%% *}" in
+        ok) printf '                  最後の確認（check-front）: 通った（%s）\n' "${check#* }" ;;
+        ng) printf '                  %s最後の確認（check-front）: 接続元を偽れるか、本当の接続元が届いていない（%s）%s。sudo ec-sugar check-front で見る\n' "$EC_C_ERR" "${check#* }" "$EC_C_END" ;;
+        wait) printf '                  最後の確認（check-front）: 外からまだ開けなかった（%s）。DNS の CNAME を足したら sudo ec-sugar check-front\n' "${check#* }" ;;
+        *) printf '                  確認（check-front）はまだ。sudo ec-sugar check-front で実行する\n' ;;
+    esac
+    # トンネルの見張り（ec-sugar watch が 10 分ごと。見直しの中 5）の最後の結果
+    check="$(ec_state_get tunnel_watch 2> /dev/null || true)"
+    case "${check%% *}" in
+        ok) printf '                  監視（よそのコネクタ）: このサーバーからだけ（%s）\n' "${check#* }" ;;
+        foreign) printf '                  %s監視: このサーバーでない所からのコネクタが接続しています（%s）%s。トークンが漏れたかもしれません（docs/install.md の「トークンが漏れた時」）\n' "$EC_C_ERR" "${check#* }" "$EC_C_END" ;;
+        down) printf '                  %s監視: コネクタが 1 つも接続していません（%s）%s\n' "$EC_C_ERR" "${check#* }" "$EC_C_END" ;;
+        unknown) printf '                  %s監視: 確認できませんでした（%s）%s。Cloudflare の API に届くか・読み取り専用の API トークンの権限を見る（sudo ec-sugar watch）\n' "$EC_C_WARN" "${check#* }" "$EC_C_END" ;;
+        unwatched) printf '                  監視: 読み取り専用の API トークンが無いので見ていません（設定ファイルの TUNNEL_WATCH_TOKEN_FILE。docs/install.md の「トンネルの監視」）\n' ;;
+        *) printf '                  監視はまだ（sudo ec-sugar watch で実行する）\n' ;;
+    esac
+}
+
+cmd_status() {
+    local cur prev last latest cert end days line mode admin timer next group
+    ec_require_root
+    ec_require_installed
+    # ほかの処理（更新など）が動いていなければ、env の名前を移す（動いていればその処理が移す）
+    ec_env_migrate_if_free || ec_warn "設定の env に新しい名前の行を足せませんでした（前の名前のまま読む）"
+    cur="$(ec_state_get current_commit || true)"
+    prev="$(ec_state_get previous_commit || true)"
+    printf 'EC-SUGAR（%s）\n' "$(ec_mode)"
+    printf '  管理画面        https://%s/\n' "$(ec_env_get EC_SUGAR_ADMIN_HOST)"
+    if [ "$(ec_front)" = proxy ]; then
+        printf '  リバースプロキシ  すでにある Web サーバーの後ろ（EC-SUGAR はソケット %s で待ち、グループ %s だけが接続できる。証明書はその Web サーバーが取る）\n' "$EC_FRONT_SOCKET" "$(ec_proxy_group)"
+    elif [ "$(ec_front)" = tunnel ]; then
+        printf '  リバースプロキシ  Cloudflare Tunnel（cloudflared が Cloudflare へ接続しに行く。EC-SUGAR の Caddy は %s の 443 番で https と証明書）\n' "$(ec_probe_ip)"
+        status_tunnel
+    else
+        printf '  リバースプロキシ  EC-SUGAR の Caddy（80・443 番と証明書）\n'
+    fi
+    if [ "$(ec_channel 2> /dev/null || echo '?')" = release ]; then
+        printf '  更新のチャネル  release（署名したタグだけ。信頼する鍵 %s 個: sudo ec-sugar trust list）\n' "$(ec_trust_fingerprints 2> /dev/null | wc -l | tr -d ' ')"
+        ec_trust_file_ok || printf '  注意            信頼する鍵の一覧 %s が使えません（無い・root の持ち物でない・ほかの利用者が書ける・読めない行がある）。更新できません\n' "$EC_TRUST_FILE"
+        printf '  バージョン              %s（%s）\n' "$(ec_state_get current_version || echo '-')" "${cur:0:12}"
+        printf '  前のバージョン          %s（%s）\n' "$(ec_state_get previous_version || echo '-')" "${prev:0:12}"
+    else
+        printf '  更新のチャネル  source（取得元のコミットをこのサーバーで組み立てる）\n'
+        printf '  バージョン              %s（%s）\n' "${cur:0:12}" "$(ec_git describe --tags --always "$cur" 2> /dev/null || echo '-')"
+        printf '  前のバージョン          %s\n' "${prev:0:12}"
+    fi
+    if [ -e "$EC_UPDATE_MARK" ]; then
+        printf '  注意            前の更新（%s → %s）が途中で止まっています。sudo ec-sugar update で前のバージョンにそろえてから続ける\n' \
+            "$(ec_kv_get "$EC_UPDATE_MARK" from | cut -c1-12)" "$(ec_kv_get "$EC_UPDATE_MARK" to | cut -c1-12)"
+    fi
+    if [ -s "$EC_STATE/tag_warning" ]; then
+        printf '  注意            %s\n' "$(ec_state_get tag_warning)"
+    fi
+    printf '  動いているか\n'
+    ec_dc ps -a --format '{{.Service}}	{{.State}} {{.Health}}' 2> /dev/null | sed 's/^/    /' || printf '    （compose に聞けません）\n'
+    status_firewall
+    printf '  外への通信      %s（この 24 時間: %s。sudo ec-sugar egress）\n' "$(egress_mode_label "$(ec_egress_mode)")" "$(egress_counts)"
+    status_integrity
+    last="$EC_STATE/last_update"
+    if [ -r "$last" ]; then
+        printf '  最後の更新      %s  %s（%s → %s）%s\n' "$(ec_kv_get "$last" time)" "$(ec_kv_get "$last" result)" \
+            "$(ec_kv_get "$last" from | cut -c1-12)" "$(ec_kv_get "$last" to | cut -c1-12)" "$(ec_kv_get "$last" message)"
+    else
+        printf '  最後の更新      まだ\n'
+    fi
+    printf '  最後の確認      %s\n' "$(ec_state_get last_check || echo まだ)"
+    if [ -s "$EC_STATE/held" ]; then
+        printf '  保留したバージョン      %s\n' "$(cut -c1-12 "$EC_STATE/held" | tr '\n' ' ')"
+    fi
+    if [ "$(ec_kv_get "$EC_STATE/last_backup" result 2> /dev/null || true)" = failed ]; then
+        printf '  注意            最後のバックアップ（%s）に失敗した（sudo ec-sugar backup で原因を見る）\n' "$(ec_kv_get "$EC_STATE/last_backup" time || true)"
+    fi
+    latest="$(ec_latest_backup || true)"
+    if [ -n "$latest" ]; then
+        printf '  最後のバックアップ  %s（%s）\n' "$(basename "$latest")" "$(ec_kv_get "$latest/manifest" reason || true)"
+        [ -z "$(find "$latest" -maxdepth 0 -mmin +2880)" ] || printf '                  注意: 2 日より古い。毎朝のバックアップが動いているか確認する（systemctl status ec-sugar-backup）\n'
+    else
+        printf '  最後のバックアップ  まだ\n'
+    fi
+    # サーバーの外のバックアップ（置き場を設定したサーバーだけ。細かいことは sudo ec-sugar offsite status）
+    if ec_offsite_configured; then
+        case "$(ec_kv_get "$EC_STATE/offsite" offsite 2> /dev/null || true)" in
+            ok) printf '  サーバーの外へ  最後に送れたバックアップ %s（%s）%s\n' "$(ec_kv_get "$EC_STATE/offsite" last_backup || echo -)" "$(ec_kv_get "$EC_STATE/offsite" offsite_at || echo -)" \
+                "$([ "$(ec_kv_get "$EC_STATE/offsite" offsite_lock || true)" != open ] || echo '  注意: ストレージのロックが効いていない')" ;;
+            failed) printf '  サーバーの外へ  %s送れていません%s（理由 %s・最後に試した %s・最後に送れた %s。sudo ec-sugar offsite status）\n' "$EC_C_ERR" "$EC_C_END" \
+                "$(ec_kv_get "$EC_STATE/offsite" reason || echo -)" "$(ec_kv_get "$EC_STATE/offsite" offsite_tried_at || echo -)" "$(ec_kv_get "$EC_STATE/offsite" offsite_at || echo まだ)" ;;
+            *) printf '  サーバーの外へ  まだ送っていません（次のバックアップの後に送る。確認は sudo ec-sugar offsite test）\n' ;;
+        esac
+    fi
+    # 証明書: 入口（Caddy）が今出している管理画面の証明書の期限。自動で取る形（auto・dns）は Caddy が期限の 30 日ほど前に取り直す
+    mode="$(ec_env_get EC_SUGAR_TLS_MODE || echo auto)"
+    admin="$(ec_env_get EC_SUGAR_ADMIN_HOST)"
+    cert="$(openssl s_client -connect "$(ec_probe_ip):$(ec_env_get EC_SUGAR_HTTPS_PORT || echo 443)" -servername "$admin" < /dev/null 2> /dev/null | openssl x509 -noout -enddate 2> /dev/null || true)"
+    if [ -n "$cert" ]; then
+        end="${cert#notAfter=}"
+        days=$((($(date -d "$end" +%s) - $(date +%s)) / 86400))
+        if [ "$(ec_front)" = proxy ]; then
+            printf '  証明書の期限    %s（あと %s 日、すでにある Web サーバーが取り直す）%s\n' "$end" "$days" "$([ "$days" -lt 20 ] && echo '  注意: 取り直しが遅れている。すでにある Web サーバー（Plesk など）の証明書の設定を見る' || true)"
+        elif [ "$mode" = manual ]; then
+            printf '  証明書の期限    %s（あと %s 日、手動で用意したもの）%s\n' "$end" "$days" "$([ "$days" -lt 30 ] && echo '  注意: 30 日を切った。新しい証明書を置いて install.sh を再実行する' || true)"
+        else
+            printf '  証明書の期限    %s（あと %s 日、%s で自動で取り直す）%s\n' "$end" "$days" "$([ "$mode" = dns ] && echo 'Cloudflare の DNS' || echo "Let's Encrypt")" \
+                "$([ "$days" -lt 20 ] && echo '  注意: 取り直しが遅れている。sudo ec-sugar logs caddy で理由を見る' || true)"
+        fi
+    else
+        printf '  証明書          リバースプロキシから読めません（sudo ec-sugar logs caddy で見る）\n'
+    fi
+    # 次の時刻は、定期の仕事の時刻の帯（答えの TIMEZONE）で出す（サーバーの時刻の帯は UTC のことが多い）。
+    # 有効なのに次の時刻が無いのは、タイマーを読めていない（書き方の誤り）
+    for timer in ec-sugar-update.timer ec-sugar-backup.timer; do
+        next="$(next_run "$timer")"
+        printf '  %s  %s（%s）\n' "$([ "$timer" = ec-sugar-update.timer ] && echo '次の自動の更新    ' || echo '次のバックアップ  ')" "$next" "$(systemctl is-enabled "$timer" 2> /dev/null || echo 無効)"
+        if [ "$next" = - ] && systemctl is-enabled --quiet "$timer" 2> /dev/null; then
+            printf '                  注意: %s を読めていません（sudo systemctl status %s で見る。直すには sudo ec-sugar install-units）\n' "$timer" "$timer"
+        fi
+    done
+    # すでにある Web サーバーの後ろに置く形: 前の Web サーバーの確かめ（ここで流す）
+    if [ "$(ec_front)" = proxy ]; then
+        # ソケットに入れるグループが、前の Web サーバーの働き手だけのままか（入れた後に PHP などが同じグループで動き出していないか）
+        group="$(ec_proxy_group)"
+        while IFS= read -r line; do
+            [ -n "$line" ] && printf '  注意            %s（ソケットに接続して接続元を偽れる）\n' "$line"
+        done < <(ec_proxy_group_problems "$group")
+        line="$(ec_shared_group_procs "$group")"
+        [ -z "$line" ] || printf '  注意            グループ %s の権限で、前段のリバースプロキシのほかにも動くもの: %s（ソケットに接続して、管理画面の接続元の制限を偽れる）%s\n' \
+            "$group" "$line" "$([ "$(ec_answer PROXY_GROUP_SHARED_OK || true)" = 1 ] && echo '。設定ファイルの PROXY_GROUP_SHARED_OK=1 で分かったうえで進めている' || true)"
+        printf '  前段のリバースプロキシの確認（sudo ec-sugar check-front と同じ）\n'
+        ec_check_front 2>&1 | sed 's/^/  /' || true
+    fi
+    while IFS= read -r line; do
+        [ -n "$line" ] && printf '  注意            %s\n' "$line"
+    done < <(ec_state_get warning || true)
+    return 0
+}
+
+cmd_logs() {
+    ec_require_root
+    ec_require_installed
+    ec_dc logs --tail 200 "$@"
+}
+
+cmd_operator() {
+    local tty
+    ec_require_root
+    ec_require_installed
+    tty="$(ec_tty_flag)"
+    # 引数はそのまま artisan へ（シェルを通さない）。登録の URL はこの端末にだけ出る
+    ec_dc exec ${tty:+"$tty"} app php artisan operator "$@"
+}
+
+cmd_deploy_key() {
+    local key="$EC_HOME/.ssh/id_ed25519" url
+    ec_require_root
+    ec_require_installed
+    install -d -m 0700 -o "$EC_USER" -g "$EC_USER" "$EC_HOME/.ssh"
+    if [ ! -e "$key" ]; then
+        runuser -u "$EC_USER" -- ssh-keygen -q -t ed25519 -N '' -C "ec-sugar@$(hostname)" -f "$key"
+    fi
+    # GitHub の鍵（公開されている指紋と同じもの）。初めての接続で知らない鍵を信じない
+    if ! grep -q '^github.com ssh-ed25519 ' "$EC_HOME/.ssh/known_hosts" 2> /dev/null; then
+        printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> "$EC_HOME/.ssh/known_hosts"
+        chown "$EC_USER:$EC_USER" "$EC_HOME/.ssh/known_hosts"
+    fi
+    url="$(ec_git remote get-url origin)"
+    printf '読み取りだけの鍵（deploy key）の公開の側です。GitHub のリポジトリの Settings → Deploy keys → Add deploy key に貼る（Allow write access は付けない）:\n\n'
+    cat "$key.pub"
+    printf '\n'
+    if [[ "$url" =~ ^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)$ ]]; then
+        printf '貼ったら、取得元（リモート）を ssh の形に替える:\n  sudo -u %s git -C %s remote set-url origin git@github.com:%s/%s\n' "$EC_USER" "$EC_SRC" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]%.git}.git"
+    fi
+    printf '届くか確認する: sudo -u %s git -C %s ls-remote origin HEAD\n' "$EC_USER" "$EC_SRC"
+}
+
+cmd_start() {
+    ec_require_root
+    # インストーラーから呼ばれたとき（鍵はインストーラーが持つ）は、インストーラーが移しているので見送る
+    ec_env_migrate_if_free || ec_warn "設定の env に新しい名前の行を足せませんでした（前の名前のまま読む）"
+    # インストールの途中（インストール済みのマークの前）にも呼ばれるので、マークではなく設定とイメージがあるかを見る
+    [ -n "$(ec_env_get EC_SUGAR_IMAGE 2> /dev/null | grep -v '<' || true)" ] || ec_die "動かすイメージが決まっていません" "sudo ./deploy/install.sh を実行する"
+    # web（nginx）はイメージの public/ をボリュームとして差し込む（type: image）。Docker を起こし直すと、作ってあったコンテナは
+    # 前の起動のときの差し込みの道筋を覚えたままで起きられない（cannot access path …/rootfs/overlayfs/…。2026-10-29 に使い捨ての Ubuntu を
+    # 起こし直して見つけた）。起動のたびに web だけ作り直す（中身はイメージと設定から作るので失うものは無い。数秒）
+    if ec_dc ps -a --format '{{.Service}}' web 2> /dev/null | ec_q -x web; then
+        ec_dc up --no-deps --force-recreate --no-start web > /dev/null 2>&1 || ec_warn "バックエンド（web）を作り直せませんでした"
+    fi
+    # 網を作り直すときに決まりの無い間を作らない（作るだけ → 防火壁 → 起こす）。
+    # 前の形のバージョンへロールバックした後に caddy のコンテナが残っていれば消す（80・443 番を取り合わない）
+    ec_dc_create_guarded --remove-orphans
+    if ! ec_dc up -d --wait --remove-orphans --wait-timeout 300; then
+        # Cloudflare Tunnel の形（ADR 0052）: 停電やルーターの再起動の後は、回線が戻るまで cloudflared だけが healthy にならない。
+        # ほかが全部動いていれば止めない（cloudflared は回線が戻れば自分でつなぎ直す。status に ✗ が出る）。それ以外は前のまま止める
+        if [ "$(ec_front)" = tunnel ] &&
+            [ -z "$(ec_dc ps --format '{{.Service}} {{.State}} {{.Health}}' 2> /dev/null | awk '$1 != "cloudflared" && ($2 != "running" || ($3 != "" && $3 != "healthy"))')" ] &&
+            ec_dc ps --format '{{.Service}}' 2> /dev/null | ec_q -x app; then
+            ec_warn "cloudflared がまだ Cloudflare に接続していません（回線が戻れば自分で再接続する。sudo ec-sugar status で見る）"
+        else
+            ec_firewall_apply || true
+            exit 1
+        fi
+    fi
+    # 網が作り直されていれば、ホストの防火壁の決まりも足し直す（root でない利用者からコンテナへ直に届かないように）
+    ec_firewall_apply || ec_die "ホストのファイアウォールを適用できませんでした（上の行。EC-SUGAR は動いています）" "sudo ec-sugar firewall で理由を見て再適用する"
+}
+
+cmd_stop() {
+    ec_require_root
+    ec_dc stop
+}
+
+# すでにある Web サーバーの後ろに置く形で、前の Web サーバーの設定を確かめる（手順書: 設定を足したら流す）
+cmd_check_front() {
+    local rc=0
+    ec_require_root
+    ec_require_installed
+    if [ "$(ec_front)" = tunnel ]; then
+        # Cloudflare Tunnel の形（ADR 0052）: 中から接続元を偽れないこと・外（Cloudflare）を回って本当の接続元が届くこと
+        ec_check_tunnel || rc=$?
+        case "$rc" in
+            0) ec_ok "Cloudflare Tunnel の構成の確認が通った（管理画面の登録の URL を開いてよい）" ;;
+            1) ec_die "接続元を偽れるか、本当の接続元が届いていません（上の行）" "直してから sudo ec-sugar check-front を再実行する" ;;
+            *) ec_die "まだ外（Cloudflare）を回って開けません（上の行）" "Cloudflare の DNS に管理画面とショップの CNAME（<トンネルの ID>.cfargotunnel.com・プロキシ済み）を足し、sudo ec-sugar status で cloudflared が healthy かを見てから再実行する（docs/install.md）" ;;
+        esac
+        return 0
+    fi
+    if [ "$(ec_front)" != proxy ]; then
+        ec_ok "リバースプロキシは EC-SUGAR の Caddy なので、前段のリバースプロキシの確認は要りません"
+        return 0
+    fi
+    ec_check_front || rc=$?
+    case "$rc" in
+        0) ec_ok "前段のリバースプロキシの設定は正しく、管理画面の登録の URL を開いてよい" ;;
+        1) ec_die "前段のリバースプロキシの設定に直すことがあります（上の行）" "直してから sudo ec-sugar check-front を再実行する" ;;
+        *) ec_die "まだ確認できません（https で開けない）" "前段のリバースプロキシにドメイン・証明書・転送の設定を足してから sudo ec-sugar check-front を実行する（docs/install.md）" ;;
+    esac
+}
+
+# 取り出したバージョンが要る env を、答えから決まる値で補う（更新の道から呼ぶ）。env の名前もここで移す（ec_ensure_env。
+# 前のバージョンの道具が更新を始めたとき、新しいバージョンの道具で最初に動くのがここ。前のバージョンの道具は「ensure-env)」の文字で有る無しを見るので、名前を変えない）
+cmd_ensure_env() {
+    ec_require_root
+    ec_ensure_env || ec_die "env に足りない項目を設定ファイルから決められません" "新しいバージョンのリポジトリで sudo ./deploy/install.sh を再実行する"
+}
+
+# 運用の道具と unit を、今の作業場所（入っているバージョン）のもので入れ直す
+cmd_install_units() {
+    ec_require_root
+    ec_require_installed
+    # 手で流した時は錠を取る（中の照らしの控え直しを、ほかの処理と重ねない）。この道具の更新の中から呼んだ時は、
+    # 錠は更新が持ったまま（EC_SUGAR_LOCK_HELD=1。本当にだれかが握っている時だけ取り直さない）。前のバージョンの道具の更新から
+    # 呼ばれた時は、前の道具は前の置き場の錠を持つので、新しい置き場の錠はここで取れる
+    if [ "${EC_SUGAR_LOCK_HELD:-}" != 1 ] || ! ec_integrity_busy; then ec_lock; fi
+    # 前のバージョンの道具が更新を終えた後に、新しく入った道具として呼ばれる（鍵は前のバージョンの道具が持ったまま）。
+    # 前のバージョンの道具が切り替えの時に前の名前だけに書いたイメージの名前を、ここで新しい名前の行にもそろえる
+    ec_env_migrate || ec_warn "設定の env に新しい名前の行を足せませんでした（前の名前のまま読む）"
+    # 入っているバージョンのコミットの git の中身から入れる（作業場所のファイルは利用者 ec-sugar が書けるので使わない。高）
+    local commit
+    commit="$(ec_state_get current_commit || true)"
+    ec_valid_commit "$commit" || ec_die "今のバージョンの記録（$EC_STATE/current_commit）が読めません" "sudo ./deploy/install.sh を再実行する"
+    EC_DEPLOY_TMP="$(ec_deploy_from_commit "$commit")" || ec_die "バージョン ${commit:0:12} の運用のスクリプトを git から読めません" "sudo -u $EC_USER git -C $EC_SRC fsck で作業ツリーの git を確認する"
+    trap '[ -z "$EC_DEPLOY_TMP" ] || rm -rf "$EC_DEPLOY_TMP"' EXIT
+    ec_install_tools "$EC_DEPLOY_TMP/deploy"
+    systemctl daemon-reload
+    # 道具と unit を確かめたコミットから入れ直したので、中の照らしのあるべき姿を控え直す（更新の後もここを通る）
+    # 更新の中から呼ばれた時は、更新がまとめて控え直す（EC_SUGAR_INTEGRITY_RECORD=skip）
+    if [ "${EC_SUGAR_INTEGRITY_RECORD:-}" != skip ]; then
+        ec_integrity_record always tools units || ec_warn "内部の整合性チェックの基準の状態を記録し直せませんでした（sudo ec-sugar integrity record）"
+    else
+        # 更新を走らせているのは前のバージョンの道具で、その道具の「自分の unit」の一覧に、このバージョンで足した unit（ec-sugar-offsite.* など）は
+        # 無い。前の道具はそれを「足された unit」に分けて控えないので、次の照らしが誤って要対応にする。この道具が入れた unit の分だけは
+        # ここで控える（道具・サービスなどは、前の道具がこの後まとめて控える。控えにある項目は、前の道具も前の控えのまま残す）
+        ec_integrity_record always units || ec_warn "内部の整合性チェックの unit の記録を直せませんでした（sudo ec-sugar integrity record）"
+    fi
+    # ホストの防火壁は、前のバージョンではステージングだけで有効だった。どの形でも有効にして、いま当てる
+    systemctl enable ec-sugar-firewall.service > /dev/null 2>&1 || true
+    ec_firewall_apply || ec_die "unit は入れ直しましたが、ホストのファイアウォールを適用できませんでした（上の行）" "sudo ec-sugar firewall で理由を見て再適用する"
+    ec_ok "unit を入れ直し、ホストのファイアウォールを適用した"
+}
+
+# サーバーの見張りの報告を今すぐ渡す（アプリの答えをそのまま見せる。形が違うと断られた理由もここで分かる）
+cmd_report() {
+    ec_require_root
+    ec_require_installed
+    ec_lock
+    ec_env_migrate || ec_warn "設定の env に新しい名前の行を足せませんでした（前の名前のまま読む）"
+    ec_host_report verbose || ec_die "サーバーの監視の報告を渡せませんでした（上の行）" "sudo ec-sugar status と sudo ec-sugar logs app で状態を見る"
+    ec_ok "サーバーの監視の報告を渡した（管理画面の運営ダッシュボードに出る）"
+}
+
+# 管理画面を開ける接続元を見る・替える。引数なしは今の値を見せるだけ。
+# 自分の住所は、ブラウザで見る端末で https://1.1.1.1/cdn-cgi/trace を開くと ip= の行に出る（IPv6 なら /64 にする）
+cmd_admin_ips() {
+    ec_require_root
+    ec_require_installed
+    if [ $# -eq 0 ]; then
+        printf '管理画面を開ける接続元: %s\n' "$(ec_env_get ADMIN_ALLOWED_IPS 2> /dev/null || echo 'まだ無い')"
+        return 0
+    fi
+    [ $# -eq 1 ] || ec_die "接続元はカンマ区切りの 1 つの引数で渡します（空白を入れない）" "例: sudo ec-sugar admin-ips 203.0.113.5/32,2001:db8:1:2::/64"
+    local problem
+    problem="$(ec_valid_cidr_list "$1" && ec_admin_ips_problem "$1" || true)"
+    [ -z "$problem" ] || ec_die "$problem" "ブラウザで見る端末のグローバル IP アドレスか、狭い範囲にする（https://1.1.1.1/cdn-cgi/trace の ip=）"
+    ec_lock
+    ec_set_admin_ips "$1" || ec_die "接続元を替えられませんでした（形が違うか、管理画面を作り直せなかった）" \
+        "IP か範囲をカンマ区切りで（例 203.0.113.5/32,2001:db8:1:2::/64）。形が正しければ、もう一度実行する"
+    ec_integrity_record if-ok env:ADMIN_ALLOWED_IPS answers:ADMIN_ALLOWED_IPS || true
+    ec_ok "管理画面を開ける接続元を $1 にした（設定ファイルにも残したので、再実行しても変わらない）"
+}
+
+# ---------- 外への通信の出口の代理（ADR 0102。docs/install.md の「外への通信」） ----------
+egress_mode_label() {
+    case "$1" in
+        enforce) printf '止めるモード（許す一覧に無い宛先を断る）' ;;
+        off) printf '送信用プロキシを使わないモード（記録しない）' ;;
+        *) printf '監視のモード（許す一覧に無い宛先も通して記録する）' ;;
+    esac
+}
+# 代理の状態のファイル（この 24 時間の数）を 1 行に。読めなければその旨（数の値は代理が書いた整数だけを拾う）
+egress_counts() {
+    local state kind n out=""
+    state="$(ec_dc exec -T egress cat /run/ec-sugar-egress/state.json 2> /dev/null || true)"
+    [ -n "$state" ] || { printf '送信用プロキシの数を読めません（sudo ec-sugar logs egress）'; return 0; }
+    for kind in allowed:通した unlisted:一覧に無いが通した refused:断った failed:接続できなかった smtp:メールの中継; do
+        n="$(printf '%s' "$state" | grep -oE "\"${kind%%:*}\":[0-9]+" | head -n1 | cut -d: -f2)"
+        out="${out}${out:+・}${kind#*:} ${n:-?}"
+    done
+    printf '%s' "$out"
+}
+# 外への通信の形を見る・替える
+#   egress                     今の形・この 24 時間の数・一覧に無かった名前（記録から。新しい順に 20 まで）
+#   egress watch|enforce|off   形を替えて、代理と app・queue・scheduler を作り直す（止める形は MAIL_HOST が名前のときだけ）
+cmd_egress() {
+    local mode="${1:-}" problem
+    ec_require_root
+    ec_require_installed
+    if [ -z "$mode" ]; then
+        printf '外への通信: %s\n' "$(egress_mode_label "$(ec_egress_mode)")"
+        printf 'この 24 時間: %s\n' "$(egress_counts)"
+        printf '許す一覧に無かった名前・断った名前（記録から）:\n'
+        ec_dc logs --no-log-prefix --since 72h egress 2> /dev/null | grep -E '"decision":"(unlisted|refuse)"' |
+            grep -oE '"reason":"[a-z-]+","host":"[a-z0-9.-]+","port":[0-9]+' | sort | uniq -c | sort -rn | head -n 20 | sed 's/^/  /' || true
+        printf '一覧に足すときは env の EC_SUGAR_EGRESS_ALLOW に書いて sudo ec-sugar egress %s（docs/install.md の「外への通信」）\n' "$(ec_egress_mode)"
+        return 0
+    fi
+    [ $# -eq 1 ] || ec_die "形は 1 つだけ書く（watch・enforce・off）"
+    case "$mode" in watch | enforce | off) ;; *) ec_die "知らないモードです: $mode" "watch（監視）・enforce（止める）・off（送信用プロキシを使わない）のどれか" ;; esac
+    if [ "$mode" = enforce ]; then
+        problem="$(ec_egress_enforce_problem)"
+        [ -z "$problem" ] || ec_die "$problem" "env の MAIL_HOST をメールの送信サービスのホスト名にしてから再実行する"
+    fi
+    ec_lock
+    ec_env_set EC_SUGAR_EGRESS_MODE "$mode"
+    # 網を作るときに決まりの無い間を作らない（作るだけ → 防火壁 → 起こす）
+    ec_dc_create_guarded --no-deps egress app queue scheduler
+    if ! ec_dc up -d --wait --wait-timeout 300 --no-deps egress app queue scheduler > /dev/null 2>&1 || ! ec_egress_reachable; then
+        ec_dc ps --format '   {{.Service}}: {{.State}} {{.Health}}' >&2 || true
+        # 代理そのものが起きないなら、代理を使わない形へ逃がすのが早い（アプリは外へ直に出る）
+        if [ "$(ec_dc ps -a --format '{{.Health}}' egress 2> /dev/null | head -n1)" != healthy ]; then
+            ec_die "送信用プロキシが healthy になりません（モードは ${mode} のまま。外への https が止まっているかもしれません）" "すぐに sudo ec-sugar egress off で送信用プロキシを使わないモードへ。理由は sudo ec-sugar logs egress"
+        fi
+        ec_die "送信用プロキシか app・queue・scheduler が時間内にヘルスチェックを通らないか、app から送信用プロキシに届きません（モードは ${mode} のまま）" "sudo ec-sugar logs egress で理由を見る。戻すときは sudo ec-sugar egress watch"
+    fi
+    # このコマンドが書いた形と、作り直したサービスの設定の指紋だけを基準に取り直す（ほかに違いがあれば取り直さずに注意を出す）。
+    # 取り直さないと、内部の整合性チェックが自分で替えた形を「基準と違う」と要対応で知らせ続ける（admin-ips と同じ）
+    ec_integrity_record if-ok env:EC_SUGAR_EGRESS_MODE service-config || true
+    ec_ok "外への通信を $(egress_mode_label "$mode") にした"
+}
+
+# 店の数の形を見る・広げる・戻す（ADR 0090。docs/install.md の「店の数」）。
+#   shops                          今の形と店のホスト（複数の店の形なら、DNS に足す行も）
+#   shops multi --domain=<ドメイン>  1 店舗の形から複数の店の形へ広げる（今のショップの URL は変えない）
+#   shops single                   複数の店の形から 1 店舗の形へ戻す（最初の店のほかは開けなくなる。データは消さない）
+# 広げる・戻すは、確かめの文を出して、端末でドメイン（戻すときは single）を打ったときだけ進む（端末でなければ --yes が要る）。
+# もうその形なら確かめずに当て直す（途中で止まった続き）。駄目なら前の形へ自動で戻す
+cmd_shops() {
+    local form="" domain="" yes=0 problem rc=0 answer host h
+    local others=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            multi | single)
+                [ -z "$form" ] || ec_die "形は 1 つだけ書く（multi か single）"
+                form="$1"
+                shift
+                ;;
+            --domain) [ $# -ge 2 ] || ec_die "--domain の後にショップのドメインを書く（例 --domain=example.jp）"; domain="$2"; shift 2 ;;
+            --domain=*) domain="${1#--domain=}"; shift ;;
+            --yes) yes=1; shift ;;
+            *) ec_die "知らない引数です: $1" "sudo ec-sugar help" ;;
+        esac
+    done
+    ec_require_root
+    ec_require_installed
+    if [ -z "$form" ]; then
+        [ -z "$domain" ] || ec_die "--domain は multi と一緒に書く（sudo ec-sugar shops multi --domain=<ドメイン>）"
+        printf '店の数の構成: %s\n' "$([ "$(ec_shops)" = multi ] && echo "複数の店（ショップのドメイン $(ec_answer SHOP_DOMAIN)）" || echo '1 店舗')"
+        printf '最初のショップ: https://%s/\n' "$(ec_shop_host)"
+        printf '店のホスト:\n'
+        ec_shop_domains | sed 's/^/  https:\/\//; s/$/\//' || printf '  （DB に聞けません。sudo ec-sugar status で状態を見る）\n'
+        [ "$(ec_shops)" != multi ] || ec_shops_dns_note
+        return 0
+    fi
+    host="$(ec_shop_host)"
+    if [ "$form" = multi ]; then
+        [ -n "$domain" ] || ec_die "ショップのドメインを --domain で渡す（例 sudo ec-sugar shops multi --domain=example.jp）"
+        problem="$(ec_shops_multi_problem "$domain")"
+        [ -z "$problem" ] || ec_die "${problem}（何も変えていません）" "docs/install.md の「店の数」を見る"
+        if [ "$(ec_shops)" != multi ]; then
+            printf '\n1 店舗の構成から、複数の店の構成へ切り替えます（ショップのドメイン %s）。\n' "$domain"
+            printf '   - 今のショップ https://%s/ の URL・店の DB・データの鍵・Stripe の通知先・管理画面（パスキー）は変わりません\n' "$host"
+            printf '   - 新しい店は <名前>.%s（php artisan shop:create <ID> --domain=<名前>.%s）。DNS は店ごとに人が足します\n' "$domain" "$domain"
+            printf '   - リバースプロキシ・バックエンド・アプリを作り直します（数秒止まる。証明書を DNS の鍵で取る構成では、ワイルドカードの証明書を取る 1〜2 分、管理画面もショップも https が開けないことがある。5 分まで待つ）\n'
+            printf '   - 駄目なら 1 店舗の構成へ自動で戻します。後から戻すときは sudo ec-sugar shops single\n'
+            if [ "$yes" -ne 1 ]; then
+                [ -t 0 ] || ec_die "確認の入力を受け取れません" "端末から実行するか、内容を確認したうえで --yes を付ける"
+                read -r -p "   よければショップのドメイン（${domain}）を打ってください: " answer
+                [ "$answer" = "$domain" ] || ec_die "ドメインが違うので止めました（何も変えていません）"
+            fi
+        fi
+    else
+        [ -z "$domain" ] || ec_die "--domain は multi と一緒に書く"
+        if [ "$(ec_shops)" != single ]; then
+            ec_valid_host "$host" || ec_die "最初の店のホストが分かりません（設定ファイル $EC_ANSWERS の SHOP_ID・SHOP_DOMAIN・SHOP_HOST を見る）"
+            while IFS= read -r h; do
+                [ -z "$h" ] || [ "$h" = "$host" ] || others+=("$h")
+            done < <(ec_shop_domains || true)
+            printf '\n複数の店の構成から、1 店舗の構成へ戻します（ショップは https://%s/ だけ）。\n' "$host"
+            if [ "${#others[@]}" -gt 0 ]; then
+                printf '   - 次の店は開けなくなります（店の DB とデータは消しません。もう一度複数の店の構成に切り替えれば開ける）: %s\n' "${others[*]}"
+            fi
+            printf '   - Stripe Connect（中央のホスト）は使えなくなります。リバースプロキシ・バックエンド・アプリを作り直します（数秒止まる）\n'
+            if [ "$yes" -ne 1 ]; then
+                [ -t 0 ] || ec_die "確認の入力を受け取れません" "端末から実行するか、内容を確認したうえで --yes を付ける"
+                read -r -p "   よければ single と打ってください: " answer
+                [ "$answer" = single ] || ec_die "入力が違うので止めました（何も変えていません）"
+            fi
+        fi
+    fi
+    ec_lock
+    # env の前の名前の行を移すのは、鍵を取った後（ほかのコマンドと同じ順）
+    ec_env_migrate || ec_die "設定の env に新しい名前の行を足せないので、始めませんでした（何も変えていません）" "sudo ls -l $EC_ENV_FILE と df -h $EC_ENV_DIR で権限と空き容量を見る"
+    ec_shops_switch "$form" "$domain" || rc=$?
+    # cloudflared の行き先（Tunnel の形）を書き直した。替えた・前の形へ戻したなら、中の照らしのあるべき姿を控え直す
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then ec_integrity_record if-ok settings tunnel || true; fi
+    case "$rc" in
+        0)
+            if [ "$form" = multi ]; then
+                ec_ok "複数の店の構成にしました（最初のショップ https://$(ec_shop_host)/ はそのまま。店は <名前>.$(ec_answer SHOP_DOMAIN)）"
+                ec_shops_dns_note
+            else
+                ec_ok "1 店舗の構成にしました（ショップ https://$(ec_shop_host)/）"
+            fi
+            [ "$(ec_front)" != tunnel ] || ec_say "DNS を足したら sudo ec-sugar check-front で外から開けるかを確認する"
+            ;;
+        1) ec_die "設定ファイルを書けませんでした（何も変えていません）" "sudo ls -l $EC_ANSWERS と df -h $EC_ROOT で権限と空き容量を見る" ;;
+        2) ec_die "$form の構成にできなかったので、前の構成へ戻しました（ショップは前のまま開いています）" "上の行で理由を見る（sudo ec-sugar logs caddy web app）。直してから再実行する" ;;
+        *) ec_die "店の数の構成を適用できず、前の構成へも戻せませんでした（ショップが止まっている恐れ）" \
+            "すぐに sudo ec-sugar status と sudo ec-sugar logs caddy web app を見る" \
+            "一時のこと（証明書を取るのが遅い・回線）なら、同じコマンドをもう一度実行すると続きから再適用する" \
+            "設定ファイル $EC_ANSWERS の SHOPS を前の値にして sudo ./deploy/install.sh を再実行すると、設定ファイルのとおりに作り直す" ;;
+    esac
+}
+
+# タグの署名で信じる鍵（ADR 0099）。一覧はサーバーの root の持ち物 $EC_TRUST_FILE だけで、リポジトリの中からは読まない。
+# 1.0 では入れ替えは人の手で（足す・外す。署名つきの自動の入れ替えは 1.0 の後）。足す・外すは指紋を見せ、yes と打ったときだけ（端末でなければ --yes）
+#   trust [list]                             信じる鍵の指紋・名前・種類
+#   trust add <公開鍵のファイル> --name=<名前>  鍵を 1 つ足す（公開鍵の .pub か allowed signers の 1 行。鍵の種類では断らない）
+#   trust remove <指紋>                       鍵を外す（最後の 1 つは外せない）
+cmd_trust() {
+    local sub="${1:-list}"
+    [ $# -eq 0 ] || shift
+    ec_require_root
+    case "$sub" in
+        list) trust_list "$@" ;;
+        add) trust_add "$@" ;;
+        remove) trust_remove "$@" ;;
+        *) ec_die "知らない使い方です: trust $sub" "sudo ec-sugar trust list・sudo ec-sugar trust add <公開鍵のファイル> --name=<名前>・sudo ec-sugar trust remove <指紋>" ;;
+    esac
+}
+
+trust_list() {
+    local fp who type
+    [ $# -eq 0 ] || ec_die "知らない引数です: $1"
+    if [ ! -e "$EC_TRUST_FILE" ]; then
+        ec_say "信頼する鍵はまだありません（${EC_TRUST_FILE}。release チャネルではインストーラーが置く。足すのは sudo ec-sugar trust add）"
+        return 0
+    fi
+    ec_trust_file_ok || ec_warn "信頼する鍵の一覧 $EC_TRUST_FILE が使えません（root:root の 0644 で、読めない行が無いこと）。このままでは更新できません"
+    printf '信頼するタグの署名の鍵（%s）:\n' "$EC_TRUST_FILE"
+    while read -r fp who type; do
+        printf '  %s  %s（%s）\n' "$fp" "$who" "$type"
+    done < <(ec_trust_fingerprints 2> /dev/null || true)
+    printf '指紋は、公式サイトで公表している指紋と同じかを確認してください\n'
+}
+
+# 足す・外すの前の確かめ（端末なら yes と打たせる。端末でなければ --yes が要る）
+trust_confirm() {
+    local yes="$1" answer
+    [ "$yes" -eq 1 ] && return 0
+    [ -t 0 ] || ec_die "確認の入力を受け取れません（何も変えていません）" "端末から実行するか、指紋を確認したうえで --yes を付ける"
+    read -r -p "   公式サイトで公表している指紋と同じなら yes と打ってください: " answer
+    [ "$answer" = yes ] || ec_die "yes でないので止めました（何も変えていません）"
+}
+
+trust_add() {
+    local file="" name="" yes=0 lines line fp who type key n=0 current=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name) [ $# -ge 2 ] || ec_die "--name の後に鍵の持ち主の名前を書く（英数字と ._@+- の 64 文字まで）"; name="$2"; shift 2 ;;
+            --name=*) name="${1#--name=}"; shift ;;
+            --yes) yes=1; shift ;;
+            -*) ec_die "知らない引数です: $1" ;;
+            *) [ -z "$file" ] || ec_die "足す鍵のファイルは 1 つだけ書く"; file="$1"; shift ;;
+        esac
+    done
+    [ -n "$file" ] || ec_die "足す公開鍵のファイルを書く" "例 sudo ec-sugar trust add /tmp/backup-key.pub --name=backup-key"
+    [ -z "$name" ] || [[ "$name" =~ $EC_TRUST_NAME_RE ]] || ec_die "名前に使えるのは英数字と ._@+- の 64 文字までです"
+    lines="$(ec_trust_lines_from_file "$file" "$name")" ||
+        ec_die "鍵のファイル $file を読めません（公開鍵の 1 行〔名前は --name で〕か、allowed signers の 1 行〔<名前> namespaces=\"git\" <種類> <鍵>〕）"
+    while IFS= read -r line; do [ -z "$line" ] || n=$((n + 1)); done <<< "$lines"
+    [ "$n" -eq 1 ] || ec_die "1 回に足す鍵は 1 つです（ファイルに ${n} 個の鍵があります）"
+    read -r who _ type key <<< "$lines"
+    fp="$(ec_key_fingerprint "$type" "$key")"
+    if [ -e "$EC_TRUST_FILE" ]; then
+        ec_trust_file_ok || ec_die "今の信頼する鍵の一覧 $EC_TRUST_FILE が使えません（root:root の 0644 で、読めない行が無いこと）" "sudo ec-sugar trust list で状態を見る"
+        if ec_trust_fingerprints | awk '{print $1}' | ec_q -xF "$fp"; then
+            ec_ok "その鍵（${fp}）はもう入っています"
+            return 0
+        fi
+        current="$(grep -v '^#' "$EC_TRUST_FILE" | grep -v '^[[:space:]]*$' || true)"
+    fi
+    printf '\n信頼する鍵を足します:\n   名前  %s\n   種類  %s\n   指紋  %s\n' "$who" "$type" "$fp"
+    trust_confirm "$yes"
+    ec_lock
+    { [ -z "$current" ] || printf '%s\n' "$current"; printf '%s\n' "$lines"; } | ec_trust_write || ec_die "信頼する鍵の一覧を書けませんでした（何も変えていません）" "sudo ls -ld $EC_TRUST_DIR と df -h $EC_ROOT を見る"
+    [ ! -e "$EC_STATE/installed" ] || ec_integrity_record if-ok trust || true
+    ec_ok "鍵 ${who}（${fp}）を足した。この鍵で署名したタグも入れられます"
+}
+
+trust_remove() {
+    local want="" yes=0 kept="" removed="" line who opt type key fp n=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --yes) yes=1; shift ;;
+            -*) ec_die "知らない引数です: $1" ;;
+            *) [ -z "$want" ] || ec_die "外す鍵の指紋は 1 つだけ書く"; want="$1"; shift ;;
+        esac
+    done
+    [[ "$want" =~ ^SHA256:[A-Za-z0-9+/]{43}$ ]] || ec_die "外す鍵の指紋を SHA256:… の形で書く（sudo ec-sugar trust list で見る）"
+    ec_trust_file_ok || ec_die "信頼する鍵の一覧 $EC_TRUST_FILE が使えません" "sudo ec-sugar trust list で状態を見る"
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+        read -r who opt type key <<< "$line"
+        fp="$(ec_key_fingerprint "$type" "$key")"
+        if [ "$fp" = "$want" ]; then
+            removed="${who}（${type}）"
+        else
+            kept="${kept}${line}"$'\n'
+            n=$((n + 1))
+        fi
+    done < "$EC_TRUST_FILE"
+    [ -n "$removed" ] || ec_die "その指紋の鍵は入っていません（sudo ec-sugar trust list で見る）"
+    [ "$n" -gt 0 ] || ec_die "最後の 1 つの鍵は外せません（外すと、どのタグも入れられなくなる）" "先に新しい鍵を sudo ec-sugar trust add で足してから外す"
+    printf '\n信頼する鍵を外します（この鍵で署名したタグは、もう入れられません）:\n   名前  %s\n   指紋  %s\n' "$removed" "$want"
+    trust_confirm "$yes"
+    ec_lock
+    printf '%s' "$kept" | ec_trust_write || ec_die "信頼する鍵の一覧を書けませんでした（何も変えていません）"
+    [ ! -e "$EC_STATE/installed" ] || ec_integrity_record if-ok trust || true
+    ec_ok "鍵 ${removed}（${want}）を外した"
+}
+
+# APP_KEY の控え。引数なしは説明、export <ファイル> は設定のファイルを root だけが読める 0600 のファイルに写す。
+# 鍵の値は画面・引数・記録に出さない（中身は common.sh の ec_app_key_export）。読むだけなので錠は取らない
+cmd_app_key() {
+    local sub="${1:-}"
+    [ $# -eq 0 ] || shift
+    ec_require_root
+    ec_require_installed
+    case "$sub" in
+        "") ec_app_key_explain ;;
+        export)
+            [ $# -eq 1 ] || ec_die "コピーする先のファイルを 1 つ書いてください" "例 sudo ec-sugar app-key export /root/ec-sugar-env-backup"
+            [[ "$1" != -* ]] || ec_die "知らない引数です: $1"
+            ec_app_key_export "$1"
+            ;;
+        *) ec_die "知らない使い方です: app-key $sub" "sudo ec-sugar app-key（説明）・sudo ec-sugar app-key export <ファイル>" ;;
+    esac
+}
+
+# 知らせの係を直に走らせる（ec-sugar-watch.timer が 10 分ごと。定期の処理が止まっても知らせる）
+cmd_watch() {
+    ec_require_root
+    ec_require_installed
+    ec_watch
+}
+
+# ホストの防火壁を当てる（ec-sugar-firewall.service が Docker の起動のたびに呼ぶ。手で当て直すときも）
+cmd_firewall() {
+    local bridges
+    ec_require_root
+    ec_firewall_apply || ec_die "ホストのファイアウォールを一部適用できませんでした（上の行）" "上の行の理由を直してから、もう一度 sudo ec-sugar firewall（iptables が使えるかは sudo iptables -S OUTPUT で見る）"
+    bridges="$(ec_bridges || true)"
+    if [ -n "$bridges" ]; then
+        ec_ok "ホストのファイアウォールを適用した（ネットワーク $(printf '%s\n' "$bridges" | wc -l | tr -d ' ') 個、$(ec_fw_tools | tr '\n' ' ' | sed 's/ $//; s/ /・/g')$(ec_lan_only_wanted && echo '、ステージングの待ち受けは LAN だけ' || true)）"
+    else
+        ec_ok "まだネットワークがありません（EC-SUGAR を起動すると適用する）"
+    fi
+}
+
+# 中の照らし（ADR 0105）
+#   integrity check    控えと照らし、署名した様子を書く（ec-sugar-integrity.timer が毎分）。困りごとがあれば名前を 1 行ずつ出す
+#   integrity key      公開の鍵（PEM）を出す（外の見張り ec-sugar-sentinel に置く）。識別子（server）は標準エラーに
+#   integrity record   あるべき姿を今の姿で控え直す（違いを調べて、正しい変更と分かった時）。世代が 1 つ上がる
+#   integrity token    外の見張りが取得に付ける合い言葉（32 桁の 16 進。一度だけ作る）を出す。nginx は合い言葉の付いた取得だけを「来た」に数える
+cmd_integrity() {
+    local sub="${1:-}" out
+    [ $# -eq 0 ] || shift
+    [ $# -eq 0 ] || ec_die "知らない引数です: $1" "sudo ec-sugar help"
+    ec_require_root
+    case "$sub" in
+        check)
+            ec_require_installed
+            out="$(ec_integrity_check)" || ec_die "内部の整合性チェックの状態を書けませんでした（上の行）" "openssl version で openssl 3 かを見る。sudo ls -l $EC_INTEGRITY_DIR"
+            if [ -n "$out" ]; then
+                printf '%s\n' "$out"
+                # compose の外の、許していないコンテナ（答えの INTEGRITY_ALLOW_CONTAINERS に書く形「<名前>@<イメージ ID>」か「<名前>@config:<指紋>」で）
+                if [ -t 1 ] && [ -s "$EC_INTEGRITY_DIR/extra" ]; then
+                    printf '\ncompose の外で動いている、許していないコンテナ（名前 イメージ ID 設定の指紋）:\n'
+                    sed 's/^/  /' "$EC_INTEGRITY_DIR/extra"
+                fi
+            elif [ -t 1 ]; then
+                ec_ok "基準の状態のまま（世代 $(ec_integrity_generation)）"
+            fi
+            ;;
+        key)
+            ec_integrity_ensure || ec_die "署名の鍵を用意できません（上の行）" "openssl version で openssl 3 かを見る"
+            ec_integrity_pubkey || ec_die "公開鍵を出せません" "sudo ls -l $EC_INTEGRITY_DIR"
+            printf 'このサーバーの識別子（server）: %s\n' "$(ec_integrity_server)" >&2
+            ;;
+        record)
+            ec_require_installed
+            ec_lock
+            ec_integrity_record always all || ec_die "基準の状態を記録し直せませんでした（上の行）"
+            ec_ok "基準の状態を今の状態で記録し直した（世代 $(ec_integrity_generation)。外部監視は「変わった」を 1 回通知します）"
+            # 鍵を放してから照らし、様子を新しくする
+            exec 9>&-
+            ec_integrity_check > /dev/null || ec_warn "状態を書けませんでした（sudo ec-sugar integrity check で理由を見る）"
+            ;;
+        token)
+            ec_require_installed
+            ec_lock
+            ec_integrity_ensure || ec_die "内部の整合性チェックの保存先を用意できません（上の行）"
+            local token
+            token="$(ec_integrity_token)" || ec_die "トークンを作れません" "sudo ls -ld $EC_INTEGRITY_DIR"
+            if [ "$(ec_env_get EC_SUGAR_SENTINEL_TOKEN 2> /dev/null || true)" != "$token" ]; then
+                ec_env_set EC_SUGAR_SENTINEL_TOKEN "$token"
+                # nginx は起動の時に雛形から設定を作るので、web を作り直して読ませる
+                ec_dc up -d --no-deps --force-recreate web > /dev/null 2>&1 || ec_warn "web を作り直せませんでした（sudo systemctl restart ec-sugar で読ませる）"
+                ec_integrity_record always env:EC_SUGAR_SENTINEL_TOKEN service-config || true
+            fi
+            # 合い言葉そのものは標準出力にだけ（外の見張りの SENTINEL_TOKEN_FILE に置く。チャット・メールに貼らない）
+            printf '%s\n' "$token"
+            ;;
+        *) ec_die "知らない使い方です: integrity ${sub}" "sudo ec-sugar integrity check・key・record・token" ;;
+    esac
+}
+
+# 中の照らしと外の見張りの最後の様子（status から）
+status_integrity() {
+    local s parts=() sentinel
+    s="$(ec_state_get integrity 2> /dev/null || true)"
+    read -r -a parts <<< "$s" || true
+    case "${parts[0]:-}" in
+        ok) printf '  内部の整合性チェック  %s✓%s 基準の状態のまま（世代 %s。sudo ec-sugar integrity key で外部監視の鍵）\n' "$EC_C_OK" "$EC_C_END" "$(ec_integrity_generation)" ;;
+        mismatch) printf '  内部の整合性チェック  %s✗ 基準の状態と違う%s: %s（%s から。心当たりが無ければ入られたかもしれない。docs/install.md の「内部の整合性チェック」）\n' "$EC_C_ERR" "$EC_C_END" "${parts[*]:2}" "${parts[1]:-}" ;;
+        *) printf '  内部の整合性チェック  まだ（sudo ec-sugar integrity check で実行する）\n' ;;
+    esac
+    sentinel="$(ec_state_get integrity_sentinel 2> /dev/null || true)"
+    case "${sentinel%% *}" in
+        # 来ている間の時刻は来始めた時刻（状態が変わった時だけ書き直す。毎回の訪問では進まない）
+        seen) printf '                  外部監視: 来ている（%s から）\n' "${sentinel#* }" ;;
+        silent) printf '                  %s外部監視が 30 分以上来ていません%s（最後 %s）\n' "$EC_C_ERR" "$EC_C_END" "${sentinel#* }" ;;
+        *) printf '                  外部監視: まだ一度も来ていません（置き方は docs/install.md の「外部監視」）\n' ;;
+    esac
+}
+
+main() {
+    local cmd="${1:-help}"
+    [ $# -eq 0 ] || shift
+    case "$cmd" in
+        status) cmd_status "$@" ;;
+        backup) cmd_backup "$@" ;;
+        restore) cmd_restore "$@" ;;
+        restore-check) cmd_restore_check "$@" ;;
+        update) cmd_update "$@" ;;
+        rollback) cmd_rollback "$@" ;;
+        logs) cmd_logs "$@" ;;
+        operator) cmd_operator "$@" ;;
+        deploy-key) cmd_deploy_key "$@" ;;
+        start) cmd_start "$@" ;;
+        stop) cmd_stop "$@" ;;
+        firewall) cmd_firewall "$@" ;;
+        report) cmd_report "$@" ;;
+        watch) cmd_watch "$@" ;;
+        admin-ips) cmd_admin_ips "$@" ;;
+        egress) cmd_egress "$@" ;;
+        shops) cmd_shops "$@" ;;
+        trust) cmd_trust "$@" ;;
+        app-key) cmd_app_key "$@" ;;
+        integrity) cmd_integrity "$@" ;;
+        offsite) cmd_offsite "$@" ;;
+        check-front) cmd_check_front "$@" ;;
+        ensure-env) cmd_ensure_env "$@" ;;
+        install-units) cmd_install_units "$@" ;;
+        help | -h | --help) usage ;;
+        *) usage >&2; ec_die "知らない使い方です: $cmd" ;;
+    esac
+}
+
+main "$@"

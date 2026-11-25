@@ -1,0 +1,43 @@
+{
+    "name": "ec-sugar/plugin-purchase-limits",
+    "description": "EC-SUGAR 公式の App: 購入の制限（商品ごとの「1 回のご注文で何点まで」と、店の「商品の合計が ◯ 円以上から」を決める）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginPurchaseLimits\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginPurchaseLimits\\PurchaseLimitsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "purchase-limits",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "minimum_subtotal": {
+                    "type": "text",
+                    "label": "最低購入金額（円）",
+                    "help": "半角の数字で入れます（例: 3000。100,000,000 まで）。カートの商品の合計（値引き・送料の前）がこの額に届かないご注文は受けません。0 か空なら、最低購入金額は設けません。",
+                    "pattern": "0|[1-9][0-9]{0,7}|100000000",
+                    "max": 9
+                }
+            }
+        }
+    }
+}

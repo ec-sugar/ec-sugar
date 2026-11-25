@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="1200" fill="#ebe8e2"/>
+  <ellipse cx="400" cy="514" rx="220" ry="100" fill="#000" opacity=".08"/>
+  <ellipse cx="400" cy="500" rx="220" ry="100" fill="#3f5a7a"/>
+  <ellipse cx="400" cy="504" rx="158" ry="68" fill="#4d6a8b"/>
+  <ellipse cx="820" cy="554" rx="220" ry="100" fill="#000" opacity=".08"/>
+  <ellipse cx="820" cy="540" rx="220" ry="100" fill="#faf8f3"/>
+  <ellipse cx="820" cy="544" rx="158" ry="68" fill="#f1ede4"/>
+  <ellipse cx="610" cy="834" rx="220" ry="100" fill="#000" opacity=".08"/>
+  <ellipse cx="610" cy="820" rx="220" ry="100" fill="#e3c2b6"/>
+  <ellipse cx="610" cy="824" rx="158" ry="68" fill="#ead0c6"/>
+  <text x="1160" y="1160" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="26" letter-spacing="6" fill="#000" opacity=".22">SAMPLE</text>
+</svg>

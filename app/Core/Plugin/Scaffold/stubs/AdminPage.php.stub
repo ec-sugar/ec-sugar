@@ -1,0 +1,181 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__;
+
+use App\Core\Plugin\AdminPage\AdminAction;
+use App\Core\Plugin\AdminPage\AdminColumn;
+use App\Core\Plugin\AdminPage\AdminFact;
+use App\Core\Plugin\AdminPage\AdminField;
+use App\Core\Plugin\AdminPage\AdminFilter;
+use App\Core\Plugin\AdminPage\AdminRecord;
+use App\Core\Plugin\AdminPage\AdminRecordNotFound;
+use App\Core\Plugin\AdminPage\AdminRow;
+use App\Core\Plugin\AdminPage\AdminRows;
+use App\Core\Plugin\AdminPage\CellType;
+use App\Core\Plugin\AdminPage\FieldType;
+use App\Core\Plugin\Contracts\AdminFormHandler;
+use App\Core\Plugin\Contracts\AdminPageHandler;
+use EcSugar\Plugin__STUDLY__\Models\__STUDLY__Item;
+use Illuminate\Database\Eloquent\Builder;
+
+/**
+ * 管理画面の「__TITLE__」（ADR 0051 の App の画面と、足す・直すの欄。make:plugin のひな形から）。
+ * App は中身（絞り込み・列・行・1 件の事実・押せる操作・欄）だけを返し、描くのは核の部品（管理画面に App の JavaScript は入らない）。
+ * 呼ばれるのは、この店で使っている時の店の文脈の中だけ。見るのは閲覧の段階から、足す・直す・操作は運用の段階から（核の経路が確かめる）。
+ * 一覧と 1 件に、お客さんの名前・メール・住所・電話を出さない（お客さんは CellType::Link の customer で核の「お客さん」の画面へ）
+ */
+final class __STUDLY__AdminPage implements AdminFormHandler, AdminPageHandler
+{
+    private const array FILTERS = ['open' => '受付中', 'closed' => '終わり', 'all' => 'すべて'];
+
+    public function title(): string
+    {
+        return '__TITLE__';
+    }
+
+    public function filters(): array
+    {
+        $all = __STUDLY__Item::query()->count();
+        $open = __STUDLY__Item::query()->where('status', __STUDLY__Status::Open->value)->count();
+        $counts = ['open' => $open, 'closed' => $all - $open, 'all' => $all];
+
+        return array_map(static fn (string $key): AdminFilter => new AdminFilter($key, self::FILTERS[$key], $counts[$key]), array_keys(self::FILTERS));
+    }
+
+    public function attention(): array
+    {
+        // ホームの「やること」に出す行（店の人が手を打つべきものだけ。3 つまで、件数が 0 の行は出ない）。例:
+        // return [new AdminAttention('open', '受付中の記録', '受付中の記録があります。', $count)];
+        return [];
+    }
+
+    public function columns(): array
+    {
+        return [
+            new AdminColumn('title', '名前', CellType::Text),
+            new AdminColumn('status', '状態', CellType::Status),
+            new AdminColumn('created', '足した日時', CellType::DateTime),
+        ];
+    }
+
+    public function rows(string $filter, int $page, int $perPage): AdminRows
+    {
+        $query = self::filtered($filter);
+        $total = (clone $query)->count();
+        $items = $query->orderByDesc('created_at')->orderByDesc('id')->forPage($page, $perPage)->get();
+
+        return new AdminRows($items->map(static fn (__STUDLY__Item $item): AdminRow => new AdminRow($item->id, [
+            'title' => self::cut($item->title),
+            'status' => self::status($item),
+            'created' => $item->created_at,
+        ]))->values()->all(), $total);
+    }
+
+    public function record(string $id): ?AdminRecord
+    {
+        $item = __STUDLY__Item::query()->find($id);
+
+        if ($item === null) {
+            return null;
+        }
+
+        // 今の状態で押せる操作だけを返す（核は、ここが返した操作だけを act に渡す。古い画面からの押し直しは 404）
+        $actions = [];
+
+        if ($item->status === __STUDLY__Status::Open) {
+            $actions[] = new AdminAction('close', '受付を終える', 'この記録の受付を終えます。ショップに出なくなります。');
+        }
+
+        if ($item->settled_at === null) {
+            // お金の操作は money: true（核が「お金」の段階の人にだけ出し、パスキーでの直前の再確認の後に渡す。足りなければ 403・423）。
+            // 取り消せない操作（消すなど）は danger: true（直前の再確認の後だけ）。くり返して押すのがふつうでお客さんに知らせない操作は repeatable: true
+            $actions[] = new AdminAction('settle', '精算済みにする', 'この記録を精算済みにします。', money: true);
+        }
+
+        return new AdminRecord(self::cut($item->title), [
+            new AdminFact('状態', CellType::Status, self::status($item)),
+            new AdminFact('精算', CellType::Text, $item->settled_at === null ? 'まだ' : '済み'),
+            new AdminFact('精算した日時', CellType::DateTime, $item->settled_at),
+            new AdminFact('足した日時', CellType::DateTime, $item->created_at),
+            new AdminFact('直した日時', CellType::DateTime, $item->updated_at),
+        ], [], $actions);
+    }
+
+    public function act(string $id, string $action, string $actor): void
+    {
+        match ($action) {
+            'close' => self::items()->close($id, $actor),
+            'settle' => self::items()->settle($id, $actor),
+            default => throw new AdminRecordNotFound,
+        };
+    }
+
+    public function createLabel(): string
+    {
+        return '記録を足す';
+    }
+
+    public function fields(): array
+    {
+        return [
+            new AdminField('title', FieldType::Text, '名前', help: 'ショップの /p/__NAME__ に出ます。', required: true, max: __STUDLY__Items::TITLE_MAX),
+        ];
+    }
+
+    public function values(string $id): ?array
+    {
+        $item = __STUDLY__Item::query()->find($id);
+
+        return $item === null ? null : ['title' => $item->title];
+    }
+
+    public function create(array $values, string $actor): string
+    {
+        return self::items()->create($values, $actor);
+    }
+
+    public function update(string $id, array $values, string $actor): void
+    {
+        self::items()->update($id, $values, $actor);
+    }
+
+    /**
+     * 書く係（店の文脈の中で呼ばれた時に作る。登録の時には作らない）
+     */
+    private static function items(): __STUDLY__Items
+    {
+        return app(__STUDLY__Items::class);
+    }
+
+    /**
+     * @return Builder<__STUDLY__Item>
+     */
+    private static function filtered(string $filter): Builder
+    {
+        $query = __STUDLY__Item::query();
+
+        return match ($filter) {
+            'open' => $query->where('status', __STUDLY__Status::Open->value),
+            'closed' => $query->where('status', __STUDLY__Status::Closed->value),
+            default => $query,
+        };
+    }
+
+    /**
+     * @return array{label: string, tone: string}
+     */
+    private static function status(__STUDLY__Item $item): array
+    {
+        return ['label' => $item->status->label(), 'tone' => $item->status->tone()];
+    }
+
+    /**
+     * 画面の文の上限（CellType::TEXT_MAX 文字）に収める
+     */
+    private static function cut(string $text): string
+    {
+        return mb_strlen($text) > CellType::TEXT_MAX ? mb_substr($text, 0, CellType::TEXT_MAX - 1).'…' : $text;
+    }
+}

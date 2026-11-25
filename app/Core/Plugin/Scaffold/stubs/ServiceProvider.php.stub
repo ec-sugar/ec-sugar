@@ -1,0 +1,56 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__;
+
+use App\Core\Plugin\PluginDefinition;
+use App\Core\Plugin\PluginRegistry;
+use EcSugar\Plugin__STUDLY__\Http\__STUDLY__Controller;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
+
+/**
+ * App「__TITLE__」（make:plugin のひな形から。ADR 0025）。プラグインの登録簿に自分を登録する。
+ * 表（__PREFIX___items）は店の DB に。管理画面は App の画面（一覧・1 件・足す・直す・操作。ADR 0051）、
+ * ショップは /p/__NAME__ の画面。どれも、店が「使う」にした時だけ動く（使っていない店では 404）
+ */
+final class __STUDLY__ServiceProvider extends ServiceProvider
+{
+    public function boot(PluginRegistry $plugins): void
+    {
+        // ショップの画面の Blade（__NAME__::index）
+        $this->loadViewsFrom(__DIR__.'/../resources/views', '__NAME__');
+
+        $plugins->register(new PluginDefinition(
+            name: '__NAME__',
+            title: '__TITLE__',
+            // 管理画面の App の一覧に出る説明（お店の人向けのやさしい言葉で、何ができるかを 1〜2 文）
+            description: '__TITLE__の記録を管理画面で足し、ショップの /p/__NAME__ に受付中の記録を並べます。',
+            pluginApi: 1,
+            // 宣言は composer.json の extra.ec-sugar（目的 category など。登録のときに核が確かめる）
+            manifest: __DIR__.'/../composer.json',
+            tenantMigrations: __DIR__.'/../database/migrations',
+            // ショップの経路。核が /p/__NAME__ の下に、storefront（ショップの守り）・public・plugin:__NAME__ の印を付けて登録する（PluginRoutes）。
+            // 公開の理由: ショップのお客さんがログインせずに見る画面だから。会員だけの画面は auth:customer を付けずに（核が付ける公開の印と両方になる）、
+            // コントローラーで $request->user('customer') が Member で belongsHere() かを確かめ、違えばログインの画面へ送る（plugin-member-ranks の RankController）。
+            // モデルを引数で結びつけない（ID は文字列で受け取り、店の文脈の中で探す。RouteAudit の規則 8）。
+            // 送る（POST）経路には、目的に合う回数の上限（throttle:storefront-member など。app/Providers/AppServiceProvider.php）を必ず付ける。
+            // 推測されない合い言葉や署名で開く経路（メールのリンクなど）は ->middleware('secret-link') で宣言する（参照元を渡さない・残さない・検索に載せないは核が掛ける。
+            // 署名つきの URL は SecretLinks::signed で作り SecretLinks::valid で確かめる。ADR 0081、plugins/README.md の「守りの書き方」）
+            // 会員の個人情報（名前・メール・住所・注文）を出す画面と、そこへの送信には ->middleware('navigation-only') を付ける。
+            // タグの JS から読ませないため（ADR 0088）: 解析・広告のタグ（ADR 0034）は同じオリジンの JavaScript で、印が無いとお客さんの Cookie のまま
+            // fetch で読み書きできる。印の経路はブラウザが画面を開く時（リンク・フォームの送信）だけ通す（回数の上限より前に動く順は核が決める）。
+            // 道筋に account・{orderId} を持つ経路で印が無いと NavigationOnlyRoutesTest が落ちる。印を付けた経路は、そのテストの MARKED と ADR 0088 の一覧にも足す。
+            // たとえばマイページの画面と、そこからの送信（コントローラーに account・saveAccount を足してから）:
+            //     Route::middleware('navigation-only')->group(function (): void {
+            //         Route::get('/account', [__STUDLY__Controller::class, 'account'])->name('account');
+            //         Route::post('/account', [__STUDLY__Controller::class, 'saveAccount'])->middleware('throttle:storefront-member')->name('account.save');
+            //     });
+            storefrontRoutes: static function (): void {
+                Route::get('/', [__STUDLY__Controller::class, 'index'])->middleware('throttle:storefront')->name('index');
+            },
+            adminPage: new __STUDLY__AdminPage,
+        ));
+    }
+}

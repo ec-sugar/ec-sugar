@@ -1,0 +1,11 @@
+# 毎朝の DB の控え（中央と全部の店。/srv/ec-sugar/backup に 7 日分。ADR 0029）
+[Unit]
+Description=EC-SUGAR database backup
+Requires=docker.service
+After=docker.service ec-sugar.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar backup --reason daily
+TimeoutStartSec=3600
+Nice=10

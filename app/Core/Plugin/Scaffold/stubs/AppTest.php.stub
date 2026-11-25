@@ -1,0 +1,168 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Plugin;
+
+use App\Admin\Services\OperatorAccess;
+use App\Core\Event\Models\DomainEvent;
+use App\Core\Plugin\Services\PluginStates;
+use EcSugar\Plugin__STUDLY__\__STUDLY__Items;
+use EcSugar\Plugin__STUDLY__\__STUDLY__Status;
+use EcSugar\Plugin__STUDLY__\Models\__STUDLY__Item;
+use Illuminate\Foundation\Testing\DatabaseTruncation;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Tests\Support\OperatorSession;
+use Tests\Support\WithTenants;
+use Tests\TestCase;
+
+/**
+ * App「__TITLE__」（make:plugin のひな形から）。ひな形のまま通る形で、App の決まりの最低限を確かめる:
+ * うまくいく流れ（足す・一覧・1 件・操作・ショップの画面・イベント）、使っていない店では 404、ほかの店の記録は 404、
+ * 運用の段階でない人は書けない（403）、お金の操作は「お金」の段階で直前の再確認の後だけ（403・423）。
+ * App の中身を作り込んだら、ここも App の決まり（失敗系・境界）に合わせて足す
+ */
+final class __STUDLY__AppTest extends TestCase
+{
+    use DatabaseTruncation;
+    use OperatorSession;
+    use WithTenants;
+
+    private const string BASE = '/api/tenants/apa/apps/__NAME__/records';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutVite();
+        Cache::store()->flush();
+        $this->configureAdminHost();
+        $this->tenant('apa');
+    }
+
+    protected function tearDown(): void
+    {
+        $this->deleteTenants();
+        parent::tearDown();
+    }
+
+    public function test_the_owner_adds_and_closes_an_item_and_the_shop_shows_the_open_ones(): void
+    {
+        $this->enableApp('apa');
+        [$owner] = $this->enrolledOperator();
+
+        $this->send('GET', '/api/tenants/apa/app-pages')->assertOk()->assertJsonFragment(['plugin' => '__NAME__', 'title' => '__TITLE__']);
+        $this->send('GET', self::BASE)->assertOk()->assertJsonPath('form.label', '記録を足す')->assertJsonPath('meta.total', 0);
+
+        $id = $this->send('POST', self::BASE, ['values' => ['title' => '<b>最初の記録</b>']])->assertCreated()->json('id');
+        $this->assertIsString($id);
+        $this->send('GET', self::BASE)->assertOk()->assertJsonPath('rows.0.id', $id)->assertJsonPath('meta.total', 1);
+        $record = $this->send('GET', self::BASE.'/'.$id)->assertOk()->assertJsonPath('record.title', '<b>最初の記録</b>');
+        $this->assertSame(['close', 'settle'], array_column($record->json('record.actions'), 'key'));
+
+        // ショップの画面に受付中の記録が出る（文はエスケープされる）
+        $this->shop('apa')->assertOk()->assertSee('&lt;b&gt;最初の記録&lt;/b&gt;', false)->assertDontSee('<b>最初の記録</b>', false);
+
+        // 名前の空は欄の誤り（核が values. を付ける）
+        $this->send('POST', self::BASE, ['values' => ['title' => '']])->assertUnprocessable()->assertJsonValidationErrors(['values.title']);
+
+        // 受付を終えると、ショップから消える。押した人がイベントに残り、イベントに名前の文は入らない
+        $this->send('POST', self::BASE.'/'.$id.'/actions/close')->assertOk()->assertJsonPath('record.facts.0.value.label', __STUDLY__Status::Closed->label());
+        $this->shop('apa')->assertOk()->assertDontSee('最初の記録');
+        $this->inside('apa', function () use ($owner): void {
+            $events = DomainEvent::query()->whereIn('type', ['__PREFIX__.created', '__PREFIX__.closed'])->orderBy('sequence')->get();
+            $this->assertSame(['__PREFIX__.created', '__PREFIX__.closed'], $events->pluck('type')->all());
+            $this->assertSame([$owner->actor(), $owner->actor()], $events->pluck('actor')->all());
+            $this->assertStringNotContainsString('最初の記録', json_encode($events->pluck('payload')->all(), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        });
+
+        // 終えた記録をもう一度終えることはできない（画面に出していない操作は 404）
+        $this->send('POST', self::BASE.'/'.$id.'/actions/close')->assertNotFound();
+    }
+
+    public function test_an_unused_app_answers_404_in_the_admin_and_the_shop(): void
+    {
+        $this->enrolledOperator();
+
+        $this->send('GET', '/api/tenants/apa/app-pages')->assertOk()->assertJsonMissing(['plugin' => '__NAME__']);
+        $this->send('GET', self::BASE)->assertNotFound();
+        $this->send('POST', self::BASE, ['values' => ['title' => 'x']])->assertNotFound();
+        $this->shop('apa')->assertNotFound();
+        $this->assertSame(0, $this->inside('apa', fn (): int => __STUDLY__Item::query()->count()));
+    }
+
+    public function test_another_shops_item_is_404(): void
+    {
+        $this->tenant('apb');
+        $this->enableApp('apa');
+        $this->enableApp('apb');
+        $this->enrolledOperator();
+        $theirs = $this->inside('apb', fn (): string => app(__STUDLY__Items::class)->create(['title' => 'B の店の記録'], 'test'));
+
+        // A の店の経路から B の店の記録は無いのと同じ（読む・直す・操作）
+        $this->send('GET', self::BASE)->assertOk()->assertJsonPath('meta.total', 0);
+        $this->send('GET', self::BASE.'/'.$theirs)->assertNotFound();
+        $this->send('PUT', self::BASE.'/'.$theirs, ['values' => ['title' => '書き換え']])->assertNotFound();
+        $this->send('POST', self::BASE.'/'.$theirs.'/actions/close')->assertNotFound();
+        $this->shop('apa')->assertOk()->assertDontSee('B の店の記録');
+        $this->inside('apb', fn () => $this->assertSame(['B の店の記録', __STUDLY__Status::Open], [__STUDLY__Item::query()->findOrFail($theirs)->title, __STUDLY__Item::query()->findOrFail($theirs)->status]));
+    }
+
+    public function test_staff_below_the_operate_level_cannot_write(): void
+    {
+        $this->enableApp('apa');
+        $id = $this->inside('apa', fn (): string => app(__STUDLY__Items::class)->create(['title' => '残す記録'], 'test'));
+        [$staff] = $this->enrolledOperator('staff@example.com', 'staff');
+        app(OperatorAccess::class)->grant($staff, 'apa', 'read', 'test');
+
+        // 閲覧の段階は見られるが、足す・直す・操作はできない
+        $this->send('GET', self::BASE.'/'.$id)->assertOk();
+        $this->send('POST', self::BASE, ['values' => ['title' => 'x']])->assertForbidden();
+        $this->send('PUT', self::BASE.'/'.$id, ['values' => ['title' => 'x']])->assertForbidden();
+        $this->send('POST', self::BASE.'/'.$id.'/actions/close')->assertForbidden();
+        $this->inside('apa', fn () => $this->assertSame(['残す記録', __STUDLY__Status::Open], [__STUDLY__Item::query()->findOrFail($id)->title, __STUDLY__Item::query()->findOrFail($id)->status]));
+    }
+
+    public function test_the_money_action_needs_the_money_level_and_a_recent_confirmation(): void
+    {
+        $this->enableApp('apa');
+        $id = $this->inside('apa', fn (): string => app(__STUDLY__Items::class)->create(['title' => '精算する記録'], 'test'));
+        [$staff, $key] = $this->enrolledOperator('staff@example.com', 'staff');
+        $access = app(OperatorAccess::class);
+
+        // 運用の段階では押せない（お金の段階）
+        $access->grant($staff, 'apa', 'operate', 'test');
+        $this->send('POST', self::BASE.'/'.$id.'/actions/settle')->assertForbidden();
+
+        // お金の段階でも、直前の再確認が無ければ 423。再確認の後に通る
+        $access->grant($staff, 'apa', 'money', 'test');
+        $this->travel(20)->minutes();
+        $this->send('POST', self::BASE.'/'.$id.'/actions/settle')->assertStatus(423);
+        $this->inside('apa', fn () => $this->assertNull(__STUDLY__Item::query()->findOrFail($id)->settled_at));
+        $this->reconfirm($staff, $key);
+        $this->send('POST', self::BASE.'/'.$id.'/actions/settle')->assertOk()->assertJsonPath('record.facts.1.value', '済み');
+        $this->inside('apa', fn () => $this->assertSame($staff->actor(), DomainEvent::query()->where('type', '__PREFIX__.settled')->sole()->actor));
+    }
+
+    /**
+     * この店で App を使うにする
+     */
+    private function enableApp(string $shop): void
+    {
+        $this->inside($shop, fn () => app(PluginStates::class)->set('__NAME__', true, 'test'));
+    }
+
+    /**
+     * ショップの /p/__NAME__ を開く（ショップの要求は店の文脈に入ったまま戻るので、閉じる）
+     *
+     * @return TestResponse<Response>
+     */
+    private function shop(string $shop): TestResponse
+    {
+        $response = $this->get("http://{$shop}.localhost/p/__NAME__");
+        tenancy()->end();
+
+        return $response;
+    }
+}

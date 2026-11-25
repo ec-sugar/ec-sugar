@@ -1,0 +1,73 @@
+{
+    "name": "ec-sugar/plugin-x-pixel",
+    "description": "EC-SUGAR の App: X ピクセル（X〔旧 Twitter〕の広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginXPixel\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginXPixel\\XPixelServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "x-pixel",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "pixel_id": {
+                    "type": "text",
+                    "label": "ピクセル ID",
+                    "help": "X の広告マネージャーの「イベントマネージャー」で見られる英小文字と数字の ID です（例: oka17）。ベースコードの twq('config', '…') の中の文字です。",
+                    "pattern": "[a-z0-9]{4,8}",
+                    "max": 8,
+                    "required": true
+                },
+                "purchase_event_id": {
+                    "type": "text",
+                    "label": "購入のイベント ID",
+                    "help": "イベントマネージャーで作った購入のイベントの ID です。イベントのコードの tw-oka17-ol288 なら、最後の ol288 を入れます。空なら購入は送りません。",
+                    "pattern": "[a-z0-9]{4,8}",
+                    "max": 8
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "X Corp.",
+                    "data": "見たページの URL、参照元、ブラウザと端末の情報、Cookie の識別子、ページを見ていた時間、購入したときの注文の番号・金額・通貨・品の ID と数",
+                    "purpose": "X（旧 Twitter）の広告の効果の測定のため",
+                    "policy": "https://x.com/ja/privacy"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "x-pixel.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://static.ads-twitter.com"],
+                    "connect-src": ["https://t.co", "https://analytics.twitter.com"],
+                    "img-src": ["https://t.co", "https://analytics.twitter.com"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

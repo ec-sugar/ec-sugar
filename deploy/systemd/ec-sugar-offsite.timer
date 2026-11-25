@@ -1,0 +1,13 @@
+# 10 分ごと。朝のバックアップ（04:15）の後の回が送り、送れなかった回は次の回が送り直す。記録の連鎖の先頭は、変わった時だけ送る
+# 置き場を設定していないサーバーでは、条件でタイマーそのものを動かさない（10 分ごとの記録を出さない）。設定した後は、install.sh の流し直し・
+# sudo ec-sugar install-units・sudo systemctl start ec-sugar-offsite.timer のどれかで動き出す
+[Unit]
+Description=EC-SUGAR offsite backup timer
+ConditionPathExists=/srv/ec-sugar/secrets/offsite/credentials
+
+[Timer]
+OnCalendar=*:5/10
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

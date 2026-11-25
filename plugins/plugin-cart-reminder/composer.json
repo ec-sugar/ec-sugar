@@ -1,0 +1,59 @@
+{
+    "name": "ec-sugar/plugin-cart-reminder",
+    "description": "EC-SUGAR 公式の App: カゴ落ちのお知らせ（注文の手続きを始めて支払わずに終わったお客さんへ、商品をカートに戻せるリンクをメールで 1 回。お知らせのメールに登録した人だけ）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginCartReminder\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginCartReminder\\CartReminderServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "cart-reminder",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "wait": {
+                    "type": "choice",
+                    "label": "お知らせを送るまで待つ時間",
+                    "help": "支払われずに注文が取り消されてから、この時間がたった後にお知らせを送ります（1 時間ごとに確認するため、最大 1 時間ほど遅れることがあります）。",
+                    "options": {
+                        "h1": "1 時間",
+                        "h2": "2 時間",
+                        "h3": "3 時間",
+                        "h6": "6 時間",
+                        "h12": "12 時間",
+                        "h24": "24 時間",
+                        "h48": "48 時間",
+                        "h72": "72 時間"
+                    },
+                    "default": "h3"
+                },
+                "opening": {
+                    "type": "text",
+                    "label": "メールの書き出しの一文",
+                    "help": "お知らせのメールの最初に出す一文（200 文字まで。改行と < > \" ' ` \\ は使えません）。空なら既定の文です。",
+                    "pattern": ".{1,200}",
+                    "max": 200
+                }
+            }
+        }
+    }
+}

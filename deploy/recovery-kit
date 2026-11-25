@@ -1,0 +1,739 @@
+#!/usr/bin/env bash
+# EC-SUGAR の復元のキットを作る・確かめる（ADR 0110 の「作って決めたこと」）。**持ち主の手元の機械**で流す（EC-SUGAR のサーバーでは流さない）。
+# この 1 ファイルだけを持ち出して使える。使う道具は bash・python3（標準のライブラリだけ）・gpg。置き場に届くかの確かめ（--verify-bucket）にだけ curl 8.5 以上。
+# macOS（bash 3.2）と Linux の両方で動く。
+#
+# サーバーの外のバックアップ（sudo ec-sugar offsite …）から戻すには、サーバーに置いていない 3 つが要る:
+#   置き場を読む鍵（access_key_id と secret_access_key）・暗号の開ける鍵（gpg の秘密の鍵と、その合い言葉）・APP_KEY の控え
+# これを 1 つのファイルにまとめ、合い言葉で暗号化したものが復元のキット。戻す先のサーバーでは --kit の 1 つで受ける:
+#   sudo ec-sugar offsite pull --latest --kit <キット>   →   sudo ec-sugar restore <名前> --kit <キット>
+#
+#   recovery-kit create <出すファイル> --server <ホスト> --endpoint <入口> --bucket <バケット> [--region auto] --gpg-key <鍵の名前か指紋>
+#                       [--read-key-file <ファイル>] [--app-key-file <ファイル>] [--verify-bucket]
+#       キットを作る。--server は元のサーバーの管理画面のホスト（置き場の中の名前。OFFSITE_PREFIX を変えたサーバーではその値）。
+#       --gpg-key は、手元の gpg の鍵束にある開ける鍵（秘密の鍵）。読む鍵と APP_KEY は、ファイルで渡さなければ画面に出ない入力で聞く。
+#       --read-key-file は access_key_id=… と secret_access_key=… の 2 行（鍵の ID・秘密の鍵の順の 2 行でもよい）。
+#       --app-key-file は base64:… の 1 行でも、APP_KEY=… の行のあるファイル（sudo ec-sugar app-key export の写しそのまま）でもよい。
+#       作った直後に、開け直して形を見る・開ける鍵で小さな印を開けられることを確かめる。--verify-bucket は、読む鍵で置き場の一覧を 1 回引く。
+#       もうあるファイルは上書きしない。できたファイルは本人だけが読める 0600
+#   recovery-kit check <ファイル> [--verify-bucket]
+#       合い言葉を聞いて開け、何が入っているか（欄の名前・サーバーの名前・入口・バケット・鍵の指紋・作った時刻）と形の確かめの結果だけを出す。
+#       鍵・合い言葉・APP_KEY の値は出さない。控えが今も正しいかを、時々これで確かめる
+#
+# 聞かれる順（端末でなければ、標準入力から 1 行ずつ読む。画面には出さない）:
+#   create: 鍵の ID → 秘密の鍵（--read-key-file が無い時）→ APP_KEY（--app-key-file が無い時）→ 開ける鍵の合い言葉（無ければ空）→
+#           キットの合い言葉 → キットの合い言葉（もう一度）
+#   check:  キットの合い言葉
+#
+# キットの中身（外側は gpg の共通鍵の暗号。AES256、合い言葉から鍵を作る回数は多め）。JSON の 1 つのオブジェクト:
+#   {"format":1,"kind":"ec-sugar-recovery-kit","created_at":"<UTC の時刻>","server":"<サーバーの名前>",
+#    "offsite":{"endpoint":"https://…","bucket":"…","region":"auto","access_key_id":"…","secret_access_key":"…"},
+#    "decrypt_key":"<gpg の秘密の鍵（ASCII の形）>","decrypt_key_passphrase":"<無ければ空>","app_key":"base64:…"}
+#
+# 守り: 鍵・合い言葉・APP_KEY の値を、画面・引数・環境変数・一時のファイルの名前に出さない。gpg へ合い言葉を渡すのは管（--passphrase-fd）、
+# curl へ鍵を渡すのは標準入力の設定（--config -）。平文の JSON はディスクに書かない（python3 の中のメモリと、gpg への管だけ）。
+# gpg は使い捨ての一時の鍵束で流す（Linux はメモリの上の置き場、macOS は /tmp の下の本人だけの置き場。使ったらすぐ消す）。秘密の鍵が入るのは、
+# 開ける鍵を確かめる時だけ（鍵束にある時と同じ形〔合い言葉つきなら合い言葉つきのまま〕で入る）。手元の gpg の鍵束（~/.gnupg か GNUPGHOME）
+# からは読むだけで、変えない。
+#
+# 終わりの値: 0 できた・確かめが通った、1 断った・確かめが通らない、2 使い方の誤り
+set -u
+
+usage() {
+    cat << 'USAGE'
+使い方: recovery-kit create <出すファイル> --server <ホスト> --endpoint <エンドポイント> --bucket <バケット> [--region auto] --gpg-key <鍵の名前か指紋>
+                            [--read-key-file <ファイル>] [--app-key-file <ファイル>] [--verify-bucket]
+        recovery-kit check <ファイル> [--verify-bucket]
+くわしくはこのファイルの頭と docs/install.md の「復元のキット」
+USAGE
+}
+
+case "${1:-}" in
+    create | check) ;;
+    -h | --help | help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+command -v python3 > /dev/null 2>&1 || { echo "python3 が見つかりません" >&2; exit 2; }
+command -v gpg > /dev/null 2>&1 || { echo "gpg が見つかりません（macOS なら brew install gnupg、Ubuntu なら sudo apt-get install -y gnupg）" >&2; exit 2; }
+
+# 本体は python3 で（-I: PYTHON* の環境変数・利用者の site・今のディレクトリを読まない）。中身は下の heredoc（展開しない）を変数に読んで -c で渡す
+# （標準入力は、端末でない時の入力のために空けておく。/dev/fd の口から読ませる形は、python3 3.9 が先に中身を読み進めてしまい、何もせずに終わる。
+# 中身に秘密は無いので、引数に載ってよい）
+IFS= read -r -d '' EC_KIT_PYTHON << 'PYTHON'
+import datetime
+import getpass
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import warnings
+
+KIND = "ec-sugar-recovery-kit"
+FORMAT = 1
+KIT_MAX = 1024 * 1024            # キットのファイルと、開けた中身の大きさの上限（サーバーの側の上限と同じ）
+INPUT_FILE_MAX = 64 * 1024       # 読み取り用のアクセスキー・APP_KEY のファイルの大きさの上限
+PASSPHRASE_MIN = 12              # キットのパスフレーズの短さの下限（文字）
+PASSPHRASE_TRIES = 3             # 端末で、キットのパスフレーズを聞き直す回数（違った・短かった時）
+S2K_COUNT = "65011712"           # パスフレーズから鍵を作る回数（gpg が受ける上限）
+CURL_MIN = (8, 5, 0)             # --aws-sigv4 が S3 互換のストレージに通るバージョン（サーバーの側の下限と同じ）
+# 開ける鍵で印を開ける試しの回数。gpg 2.4.9（macOS で確かめた。2026-11-20）は、空の鍵束に入れたばかりの秘密の鍵（ed25519 と cv25519）を
+# 使い損ねることがある: 合い言葉つきの鍵は、正しい合い言葉でも最初の何回かを「Bad passphrase」で断る（同じ鍵束で試し直すと通る）。
+# 合い言葉なしの鍵は、入れた時に壊れた形で持ってしまい「Bad secret key」になる（新しい鍵束に入れ直すと通る）。
+# なので、合い言葉の誤りは同じ鍵束で KEY_TRIES 回まで、ほかの誤りは新しい鍵束で HOME_TRIES 回まで試し直す（どちらも、直る gpg では 1 回で通る。
+# 違う合い言葉は何回試しても通らない）
+KEY_TRIES = 12
+HOME_TRIES = 40
+GPG_ERR_BAD_PASSPHRASE = 11
+TOP_KEYS = ("format", "kind", "created_at", "server", "offsite", "decrypt_key", "decrypt_key_passphrase", "app_key")
+OFFSITE_KEYS = ("endpoint", "bucket", "region", "access_key_id", "secret_access_key")
+# 値の形（サーバーの側の確かめ deploy/lib/common.sh の ec_offsite_valid_… と同じ）
+# 入口は https だけ。この値を替える引数も環境変数も無い（確かめの台本だけが、手元の偽の置き場のために、この行を書き換えた写しを使う）
+ALLOW_HTTP = False
+RE_ENDPOINT = re.compile(r"\A(https?)://[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(:[0-9]{1,5})?\Z")
+RE_BUCKET = re.compile(r"\A[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+RE_SERVER = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,99}\Z")
+RE_REGION = re.compile(r"\A[a-z0-9-]{1,32}\Z")
+RE_KEY_ID = re.compile(r"\A[A-Za-z0-9]{16,128}\Z")
+RE_KEY_SECRET = re.compile(r"\A[A-Za-z0-9/+=]{16,128}\Z")
+RE_APP_KEY = re.compile(r"\Abase64:[A-Za-z0-9+/]{43}=\Z")
+RE_CREATED = re.compile(r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+RE_FPR = re.compile(r"\A[0-9A-F]{40,64}\Z")
+RE_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+ARMOR_HEAD = "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+ARMOR_TAIL = "-----END PGP PRIVATE KEY BLOCK-----"
+# gpg の決まった引数（設定を読まない・端末に聞かない・鍵を外へ取りに行かない）
+GPG = ["gpg", "--batch", "--no-options", "--no-tty", "--quiet", "--no-auto-key-retrieve", "--disable-dirmngr"]
+
+TEMP_HOMES = []
+
+
+class Refuse(Exception):
+    """断る理由（1 つ目）と直し方（2 つ目から）。値そのものは入れない"""
+
+    def __init__(self, why, *hints):
+        Exception.__init__(self, why)
+        self.why = why
+        self.hints = hints
+
+
+def out(text=""):
+    sys.stdout.write(text + "\n")
+    sys.stdout.flush()
+
+
+def note(text):
+    sys.stderr.write("   注意 " + text + "\n")
+    sys.stderr.flush()
+
+
+def usage_error(text):
+    sys.stderr.write(text + "\n使い方は recovery-kit --help\n")
+    sys.exit(2)
+
+
+# ---------- 画面に出ない入力 ----------
+def ask(prompt):
+    """1 行を聞く。端末なら画面に出さずに、端末でなければ標準入力から 1 行"""
+    sys.stderr.write("   " + prompt + ": ")
+    sys.stderr.flush()
+    if sys.stdin.isatty():
+        with warnings.catch_warnings():
+            # 画面に出さずに聞けない端末では、出して聞かずに止める
+            warnings.simplefilter("error")
+            try:
+                value = getpass.getpass("")
+            except (getpass.GetPassWarning, EOFError):
+                raise Refuse("画面に出さずに入力を聞けません（端末から実行する）")
+        return value.strip("\r\n")
+    line = sys.stdin.readline()
+    sys.stderr.write("\n")
+    if line == "":
+        raise Refuse("入力が足りません（端末でない時は、聞かれる順に標準入力へ 1 行ずつ渡す）")
+    return line.rstrip("\n").rstrip("\r")
+
+
+def ask_kit_phrase():
+    """キットのパスフレーズを 2 回聞く。端末なら、違った時にパスフレーズだけを聞き直す
+    （ここまでに入れた鍵と APP_KEY を、打ち間違いの 1 回で入れ直させない）。
+    端末でなければ聞き直さない（渡す側の行の数がずれる）"""
+    tries = PASSPHRASE_TRIES if sys.stdin.isatty() else 1
+    for left in range(tries - 1, -1, -1):
+        phrase = ask("キットのパスフレーズ（{} 文字以上。キットを復号する時に要る）".format(PASSPHRASE_MIN))
+        if RE_CONTROL.search(phrase):
+            problem = "キットのパスフレーズに、使えない文字（制御文字）があります"
+        elif len(phrase) < PASSPHRASE_MIN:
+            problem = "キットのパスフレーズが短すぎます（{} 文字以上）".format(PASSPHRASE_MIN)
+        elif ask("キットのパスフレーズ（もう一度）") != phrase:
+            problem = "キットのパスフレーズが 2 回で違います"
+        else:
+            return phrase
+        if left == 0:
+            raise Refuse(problem + "（キットは作っていません）")
+        note(problem + "。パスフレーズだけ、もう一度聞きます（あと {} 回）".format(left))
+    raise Refuse("キットのパスフレーズを決められません（キットは作っていません）")
+
+
+# ---------- gpg ----------
+def run_gpg(args, data=b"", passphrase=None, home=None):
+    """gpg を実行する。パスフレーズは管で渡す（引数・環境変数に載せない）。返りは（終わりの値・標準出力・状態の行）"""
+    cmd = list(GPG)
+    if home is not None:
+        cmd += ["--homedir", home]
+    status_r, status_w = os.pipe()
+    fds = [status_w]
+    cmd += ["--status-fd", str(status_w)]
+    pass_r = None
+    if passphrase is not None:
+        pass_r, pass_w = os.pipe()
+        os.write(pass_w, passphrase.encode("utf-8") + b"\n")
+        os.close(pass_w)
+        fds.append(pass_r)
+        cmd += ["--pinentry-mode", "loopback", "--passphrase-fd", str(pass_r)]
+    try:
+        proc = subprocess.Popen(cmd + args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, pass_fds=fds)
+    finally:
+        os.close(status_w)
+        if pass_r is not None:
+            os.close(pass_r)
+    stdout, _ = proc.communicate(data)
+    with os.fdopen(status_r, "rb") as f:
+        status = f.read().decode("utf-8", "replace")
+    return proc.returncode, stdout, status
+
+
+def temp_home():
+    """gpg の一時のキーリング（本人だけの 0700。Linux はメモリの上、無ければ /tmp の下。パスは短く〔長いと gpg-agent の口を作れない〕）"""
+    for base in ("/run/user/{}".format(os.getuid()), "/dev/shm", "/tmp"):
+        if os.path.isdir(base) and os.access(base, os.W_OK | os.X_OK):
+            try:
+                home = tempfile.mkdtemp(prefix="ec-kit.", dir=base)
+            except OSError:
+                continue
+            TEMP_HOMES.append(home)
+            return home
+    raise Refuse("gpg の一時ディレクトリを作れません（/tmp に書けない）")
+
+
+def drop_home(home):
+    try:
+        subprocess.call(["gpgconf", "--homedir", home, "--kill", "all"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
+    shutil.rmtree(home, ignore_errors=True)
+    if home in TEMP_HOMES:
+        TEMP_HOMES.remove(home)
+
+
+def drop_all_homes():
+    for home in list(TEMP_HOMES):
+        drop_home(home)
+
+
+def secret_fingerprints(listing):
+    """--with-colons の一覧から、秘密の鍵（sec）ごとの指紋"""
+    found = []
+    want = False
+    for line in listing.decode("utf-8", "replace").splitlines():
+        cols = line.split(":")
+        if cols[0] == "sec":
+            want = True
+        elif cols[0] == "fpr" and want and len(cols) > 9:
+            found.append(cols[9])
+            want = False
+    return found
+
+
+def export_decrypt_key(name, passphrase):
+    """手元のキーリングから、秘密鍵を 1 つ取り出す。返りは（指紋・鍵の文字）"""
+    if not name or name.startswith("-") or RE_CONTROL.search(name):
+        raise Refuse("--gpg-key の値の形が違います（鍵の名前・メール・指紋）")
+    code, listing, _ = run_gpg(["--with-colons", "--list-secret-keys", "--", name])
+    fprs = secret_fingerprints(listing) if code == 0 else []
+    if not fprs:
+        raise Refuse("手元の gpg のキーリングに、その秘密鍵がありません", "gpg --list-secret-keys で見て、指紋で渡す")
+    if len(fprs) > 1:
+        raise Refuse("その名前に合う秘密の鍵が {} つあります".format(len(fprs)), "gpg --list-secret-keys で見て、指紋で渡す")
+    fpr = fprs[0]
+    code, armor, _ = run_gpg(["--armor", "--export-secret-keys", "--", fpr], passphrase=passphrase)
+    text = armor.decode("ascii", "replace") if code == 0 else ""
+    if ARMOR_HEAD not in text:
+        raise Refuse("秘密鍵をキーリングから取り出せません（秘密鍵のパスフレーズが違う）")
+    return fpr, text
+
+
+def bad_passphrase(status):
+    """gpg の状態の行が、パスフレーズの誤り（誤りの番号の下 16 桁が Bad passphrase）を言っているか"""
+    for line in status.splitlines():
+        cols = line.split()
+        if len(cols) >= 4 and cols[1] == "ERROR" and cols[3].isdigit() and int(cols[3]) & 0xFFFF == GPG_ERR_BAD_PASSPHRASE:
+            return True
+    return False
+
+
+def verify_decrypt_key(armor, passphrase):
+    """秘密鍵の文字が、本当に使えるかを確認する: 一時のキーリングに入れ、その公開鍵で暗号化した小さな印を、パスフレーズで復号する。返りは指紋"""
+    for _ in range(HOME_TRIES):
+        home = temp_home()
+        try:
+            code, _, _ = run_gpg(["--import"], data=armor.encode("ascii", "replace"), home=home)
+            code2, listing, _ = run_gpg(["--with-colons", "--list-secret-keys"], home=home)
+            fprs = secret_fingerprints(listing) if code == 0 and code2 == 0 else []
+            if len(fprs) != 1 or not RE_FPR.match(fprs[0]):
+                raise Refuse("秘密鍵が、gpg の秘密鍵 1 つの形でありません")
+            mark = os.urandom(24).hex().encode("ascii")
+            code, sealed, _ = run_gpg(["--trust-model", "always", "--compress-algo", "none", "--recipient", fprs[0], "--encrypt", "--output", "-"], data=mark, home=home)
+            if code != 0 or not sealed:
+                raise Refuse("秘密鍵の公開鍵で暗号化できません（暗号化に使える鍵が無いか、期限が切れている）")
+            wrong = 0
+            for _ in range(KEY_TRIES):
+                code, opened, status = run_gpg(["--decrypt"], data=sealed, passphrase=passphrase, home=home)
+                if code == 0 and opened == mark and "[GNUPG:] DECRYPTION_OKAY" in status:
+                    return fprs[0]
+                if not bad_passphrase(status):
+                    break
+                wrong += 1
+            if wrong == KEY_TRIES:
+                raise Refuse("秘密鍵で、暗号化した印を復号できません（秘密鍵のパスフレーズが違う）")
+        finally:
+            drop_home(home)
+    raise Refuse("秘密鍵で、暗号化した印を復号できません（パスフレーズの誤りではない。このマシンの gpg が、取り出した鍵を使えない）",
+                 "gpg を新しくするか、別のマシンで実行する")
+
+
+def seal_kit(plain, passphrase):
+    """平文の JSON（bytes）を、パスフレーズの共通鍵の暗号で包む"""
+    home = temp_home()
+    try:
+        code, sealed, _ = run_gpg(["--symmetric", "--cipher-algo", "AES256", "--s2k-mode", "3", "--s2k-digest-algo", "SHA512", "--s2k-count", S2K_COUNT,
+                                   "--compress-algo", "none", "--output", "-"], data=plain, passphrase=passphrase, home=home)
+    finally:
+        drop_home(home)
+    if code != 0 or not sealed:
+        raise Refuse("キットを暗号化できません（gpg が失敗した）")
+    return sealed
+
+
+def open_kit(sealed, passphrase):
+    """キットをパスフレーズで復号する。本当に復号した跡（DECRYPTION_OKAY）の無いもの（平文の包み）は断る"""
+    home = temp_home()
+    try:
+        code, plain, status = run_gpg(["--max-output", str(KIT_MAX), "--decrypt"], data=sealed, passphrase=passphrase, home=home)
+    finally:
+        drop_home(home)
+    if code != 0 or "[GNUPG:] DECRYPTION_OKAY" not in status or "[GNUPG:] BADMDC" in status or "[GNUPG:] DECRYPTION_FAILED" in status:
+        raise Refuse("キットを復号できません（パスフレーズが違うか、復元のキット〔パスフレーズで暗号化したファイル〕でない）")
+    return plain
+
+
+# ---------- 値の形 ----------
+def no_duplicates(pairs):
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError("duplicate")
+        seen[key] = value
+    return seen
+
+
+def reject_constant(_):
+    raise ValueError("constant")
+
+
+def parse_kit(plain, allow_http=False):
+    """復号した中身を読む。JSON の 1 つのオブジェクトで、決まった欄だけ・値は決まった形。違えば、どこが違うかだけを言う（値は出さない）"""
+    try:
+        kit = json.loads(plain.decode("utf-8"), object_pairs_hook=no_duplicates, parse_constant=reject_constant)
+    except (ValueError, UnicodeDecodeError):
+        raise Refuse("キットの中身が JSON でありません")
+    problems = kit_problems(kit, allow_http)
+    if problems:
+        raise Refuse("キットの形が違います: " + "・".join(problems))
+    return kit
+
+
+def kit_problems(kit, allow_http=False):
+    """形の違う所を、欄の名前で並べる（値は出さない）"""
+    if not isinstance(kit, dict):
+        return ["JSON のオブジェクトでない"]
+    problems = []
+    unknown = sorted(str(k)[:40] for k in kit if k not in TOP_KEYS)
+    if unknown:
+        problems.append("知らない欄がある（{} つ）".format(len(unknown)))
+    # offsite（置き場と読む鍵）は無くてもよい: 管理画面で作ったキットには入らない（読む鍵は置き場の側で作り直せる。戻す時に別に渡す）
+    missing = [k for k in TOP_KEYS if k not in kit and k not in ("decrypt_key_passphrase", "offsite")]
+    if missing:
+        problems.append("欄が足りない（{}）".format("・".join(missing)))
+        return problems
+    if type(kit["format"]) is not int or kit["format"] != FORMAT:
+        problems.append("format が {} でない（新しい形のキットなら、新しい recovery-kit を使う）".format(FORMAT))
+        return problems
+    if kit["kind"] != KIND:
+        problems.append("kind が違う")
+
+    def text(value):
+        return isinstance(value, str)
+
+    if not (text(kit["created_at"]) and RE_CREATED.match(kit["created_at"])):
+        problems.append("created_at の形が違う")
+    if not (text(kit["server"]) and RE_SERVER.match(kit["server"]) and ".." not in kit["server"]):
+        problems.append("server の形が違う")
+    offsite = kit.get("offsite")
+    if "offsite" not in kit:
+        pass
+    elif not isinstance(offsite, dict) or sorted(offsite) != sorted(OFFSITE_KEYS) or not all(text(v) for v in offsite.values()):
+        problems.append("offsite の欄が違う")
+    else:
+        m = RE_ENDPOINT.match(offsite["endpoint"])
+        if not m or (m.group(1) != "https" and not allow_http):
+            problems.append("offsite.endpoint が https://<名前> の形でない")
+        if not RE_BUCKET.match(offsite["bucket"]) or ".." in offsite["bucket"]:
+            problems.append("offsite.bucket の形が違う")
+        if not RE_REGION.match(offsite["region"]):
+            problems.append("offsite.region の形が違う")
+        if not RE_KEY_ID.match(offsite["access_key_id"]):
+            problems.append("offsite.access_key_id の形が違う")
+        if not RE_KEY_SECRET.match(offsite["secret_access_key"]):
+            problems.append("offsite.secret_access_key の形が違う")
+    key = kit["decrypt_key"]
+    if not (text(key) and key.startswith(ARMOR_HEAD) and key.rstrip().endswith(ARMOR_TAIL) and len(key) <= 256 * 1024
+            and all(c in "\r\n" or 32 <= ord(c) < 127 for c in key)):
+        problems.append("decrypt_key が gpg の秘密鍵の形でない")
+    phrase = kit.get("decrypt_key_passphrase", "")
+    if not text(phrase) or RE_CONTROL.search(phrase):
+        problems.append("decrypt_key_passphrase の形が違う")
+    if not (text(kit["app_key"]) and RE_APP_KEY.match(kit["app_key"])):
+        problems.append("app_key の形が違う（base64: で始まる 51 文字）")
+    return problems
+
+
+# ---------- 入力（読む鍵・APP_KEY） ----------
+def read_small_file(path, what):
+    try:
+        with open(path, "rb") as f:
+            data = f.read(INPUT_FILE_MAX + 1)
+        mode = os.stat(path).st_mode
+    except OSError:
+        raise Refuse("{}のファイルが読めません".format(what))
+    if len(data) > INPUT_FILE_MAX:
+        raise Refuse("{}のファイルが大きすぎます".format(what))
+    if mode & 0o044:
+        note("{}のファイルが、ほかの人から読めます（chmod 600 にするか、キットを作ったら消す）".format(what))
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refuse("{}のファイルの形が違います（中身は出しません）".format(what))
+
+
+def parse_read_key(text):
+    """読み取り用のアクセスキーのファイル: access_key_id=… と secret_access_key=… の 2 行か、鍵の ID・秘密の鍵の順の 2 行"""
+    key_id = secret = ""
+    bare = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("access_key_id="):
+            key_id = line.split("=", 1)[1]
+        elif line.startswith("secret_access_key="):
+            secret = line.split("=", 1)[1]
+        else:
+            bare.append(line)
+    if not key_id and not secret and len(bare) == 2:
+        key_id, secret = bare
+        bare = []
+    if bare or not RE_KEY_ID.match(key_id) or not RE_KEY_SECRET.match(secret):
+        raise Refuse("読み取り用のアクセスキーの形が違います（中身は出しません）", "access_key_id=… と secret_access_key=… の 2 行。鍵の ID と秘密の鍵を取り違えていないかも見る")
+    return key_id, secret
+
+
+def parse_app_key(text):
+    """APP_KEY: base64:… の 1 行、APP_KEY=… の行、設定のファイルのコピー（APP_KEY= の行を探す）のどれでも"""
+    key = ""
+    lines = text.splitlines()
+    for line in lines:
+        if line.startswith("APP_KEY="):
+            key = line
+            break
+    if not key and lines:
+        key = lines[0]
+    key = key.strip()
+    if key.startswith("APP_KEY="):
+        key = key[len("APP_KEY="):]
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        key = key[1:-1]
+    if not RE_APP_KEY.match(key):
+        raise Refuse("APP_KEY の形が違います（base64: で始まる 1 行。中身は出しません）")
+    return key
+
+
+def endpoint_hint(endpoint, key_id, secret):
+    """エンドポイントごとの鍵の形の見当（取り違えに早く気づくため。止めない）"""
+    if endpoint.endswith(".r2.cloudflarestorage.com"):
+        if not re.match(r"\A[0-9a-f]{32}\Z", key_id) or not re.match(r"\A[0-9a-f]{64}\Z", secret):
+            note("このエンドポイント（Cloudflare R2）の鍵は、ふつう鍵の ID が 16 進の 32 文字・秘密の鍵が 16 進の 64 文字です。"
+                 "形が違うので、API トークンの値と取り違えていないかを見てください（--verify-bucket で、届くかを確認できます）")
+
+
+# ---------- 置き場に届くか ----------
+def curl_version():
+    try:
+        first = subprocess.check_output(["curl", "--version"], stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL).decode("utf-8", "replace").splitlines()[0]
+    except (OSError, subprocess.CalledProcessError, IndexError):
+        return None
+    m = re.match(r"curl (\d+)\.(\d+)\.(\d+)", first)
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def verify_bucket(kit, allow_http):
+    """読み取り用のアクセスキーで、ストレージの一覧を 1 回引く。返りは（確認したか・通ったか・文）。鍵は curl の設定として標準入力でだけ渡す"""
+    version = curl_version()
+    if version is None:
+        return False, True, "curl が無いので、ストレージに届くかは確認していません"
+    if version < CURL_MIN:
+        return False, True, "この curl（{}）では S3 互換のストレージを引けないので、ストレージに届くかは確認していません（{} 以上が要る）".format(
+            ".".join(str(x) for x in version), ".".join(str(x) for x in CURL_MIN))
+    offsite = kit["offsite"]
+    prefix = "db/{}/".format(kit["server"])
+    quoted = "".join(c if re.match(r"[A-Za-z0-9._~-]", c) else "%{:02X}".format(ord(c)) for c in prefix)
+    url = "{}/{}?list-type=2&max-keys=1&prefix={}".format(offsite["endpoint"], offsite["bucket"], quoted)
+    config = 'user = "{}:{}"\naws-sigv4 = "aws:amz:{}:s3"\n'.format(offsite["access_key_id"], offsite["secret_access_key"], offsite["region"])
+    cmd = ["curl", "-q", "-sS", "--proto", "=https,http" if allow_http else "=https", "--connect-timeout", "20", "--max-time", "60",
+           "--max-filesize", str(KIT_MAX), "-o", "-", "-w", "\n%{http_code}", "--config", "-", url]
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        body, _ = proc.communicate(config.encode("ascii"))
+    except OSError:
+        return False, True, "curl を実行できないので、ストレージに届くかは確認していません"
+    text = body.decode("utf-8", "replace")
+    code = text.rsplit("\n", 1)[-1].strip()
+    if not re.match(r"\A[1-5][0-9]{2}\Z", code):
+        code = "000"
+    if proc.returncode == 0 and code == "200" and "<ListBucketResult" in text:
+        if "<Key>" in text:
+            return True, True, "読み取り用のアクセスキーでストレージに届く（サーバーの名前 {} のバックアップがある）".format(kit["server"])
+        return True, True, "読み取り用のアクセスキーでストレージに届くが、サーバーの名前 {} のバックアップはまだ無い（送る前か、--server の名前が違う）".format(kit["server"])
+    if code == "403":
+        return True, False, "読み取り用のアクセスキーがストレージに断られました（応答 403。鍵の ID と秘密の鍵の取り違え・鍵の権限・バケットの名前を見る）"
+    return True, False, "ストレージの一覧を引けません（応答 {}。エンドポイント・バケット・回線を見る）".format(code)
+
+
+# ---------- 見せる ----------
+def describe(kit, fpr):
+    out("   入っているもの  " + "・".join(k for k in TOP_KEYS if k in kit))
+    out("   作った時刻      {}（UTC）".format(kit["created_at"]))
+    out("   サーバーの名前  " + kit["server"])
+    if "offsite" in kit:
+        out("   ストレージ      {}（バケット {}・リージョン {}）".format(kit["offsite"]["endpoint"], kit["offsite"]["bucket"], kit["offsite"]["region"]))
+        out("   アクセスキー    読み取り用。形は合っている（値は出しません）")
+    else:
+        out("   ストレージ      入っていない（管理画面で作ったキット。サーバーの外のバックアップを取りに行く時は、ストレージのエンドポイント・バケット・読み取り用のアクセスキーを別に渡す）")
+    out("   秘密鍵の指紋    {}（パスフレーズ {}）".format(fpr, "あり" if kit.get("decrypt_key_passphrase", "") else "なし"))
+    out("   APP_KEY         形は合っている（値は出しません）")
+
+
+# ---------- create ----------
+def cmd_create(argv):
+    opts = {"server": None, "endpoint": None, "bucket": None, "region": "auto", "gpg-key": None, "read-key-file": None, "app-key-file": None}
+    flags = {"verify-bucket": False}
+    dest = None
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg.startswith("--") and arg[2:] in flags:
+            flags[arg[2:]] = True
+            i += 1
+        elif arg.startswith("--") and arg[2:] in opts:
+            if i + 1 >= len(argv):
+                usage_error("{} の後に値を書いてください".format(arg))
+            opts[arg[2:]] = argv[i + 1]
+            i += 2
+        elif arg.startswith("-"):
+            usage_error("知らない引数です: {}".format(arg[:40]))
+        elif dest is None:
+            dest = arg
+            i += 1
+        else:
+            usage_error("出すファイルは 1 つだけ")
+    if dest is None:
+        usage_error("出すファイルの名前を書いてください（例 ec-sugar-recovery-kit.gpg）")
+    for name in ("server", "endpoint", "bucket", "gpg-key"):
+        if not opts[name]:
+            usage_error("--{} が要ります".format(name))
+    endpoint = opts["endpoint"].rstrip("/")
+    m = RE_ENDPOINT.match(endpoint)
+    if not m or (m.group(1) != "https" and not ALLOW_HTTP):
+        usage_error("--endpoint は https://<名前> の形（パス・クエリ・ユーザー情報は書けない）")
+    if not RE_BUCKET.match(opts["bucket"]) or ".." in opts["bucket"]:
+        usage_error("--bucket の形が違います")
+    if not RE_SERVER.match(opts["server"]) or ".." in opts["server"]:
+        usage_error("--server の形が違います（元のサーバーの管理画面のホスト。例 admin.example.jp）")
+    if not RE_REGION.match(opts["region"]):
+        usage_error("--region の形が違います")
+    if os.path.lexists(dest):
+        raise Refuse("{} はもうあります（上書きしません）".format(dest), "別の名前を書くか、要らなければ消してから再実行する")
+    if not os.path.isdir(os.path.dirname(os.path.abspath(dest))):
+        raise Refuse("ディレクトリ {} がありません".format(os.path.dirname(os.path.abspath(dest))))
+
+    out("復元のキットを作ります（鍵・パスフレーズ・APP_KEY は画面に出ません）")
+    if opts["read-key-file"] is not None:
+        key_id, secret = parse_read_key(read_small_file(opts["read-key-file"], "読み取り用のアクセスキー"))
+    else:
+        key_id = ask("ストレージの読み取り用のアクセスキーの ID（access_key_id）").strip()
+        secret = ask("ストレージの読み取り用のアクセスキーの秘密の鍵（secret_access_key）").strip()
+        key_id, secret = parse_read_key("access_key_id={}\nsecret_access_key={}\n".format(key_id, secret))
+    endpoint_hint(endpoint, key_id, secret)
+    if opts["app-key-file"] is not None:
+        app_key = parse_app_key(read_small_file(opts["app-key-file"], "APP_KEY "))
+    else:
+        app_key = parse_app_key(ask("APP_KEY（base64:… の 1 行。APP_KEY=… の形でもよい）"))
+    key_phrase = ask("秘密鍵（gpg）のパスフレーズ（付けていなければ、そのまま Enter）")
+    if RE_CONTROL.search(key_phrase):
+        raise Refuse("秘密鍵のパスフレーズに、使えない文字（制御文字）があります")
+    fpr, armor = export_decrypt_key(opts["gpg-key"], key_phrase)
+    if verify_decrypt_key(armor, key_phrase) != fpr:
+        raise Refuse("取り出した秘密鍵の指紋が、キーリングのものと違います")
+    out("   ✓ 秘密鍵 {} をキーリングから取り出し、暗号化した印を復号できた".format(fpr))
+
+    kit = {
+        "format": FORMAT,
+        "kind": KIND,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "server": opts["server"],
+        "offsite": {"endpoint": endpoint, "bucket": opts["bucket"], "region": opts["region"], "access_key_id": key_id, "secret_access_key": secret},
+        "decrypt_key": armor,
+        "decrypt_key_passphrase": key_phrase,
+        "app_key": app_key,
+    }
+    problems = kit_problems(kit, ALLOW_HTTP)
+    if problems:
+        raise Refuse("キットの形が違います: " + "・".join(problems))
+    if flags["verify-bucket"]:
+        checked, passed, text = verify_bucket(kit, ALLOW_HTTP)
+        if not passed:
+            raise Refuse(text + "（キットは作っていません）")
+        if checked:
+            out("   ✓ " + text)
+        else:
+            note(text)
+
+    phrase = ask_kit_phrase()
+
+    plain = json.dumps(kit, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    sealed = seal_kit(plain, phrase)
+    # 無い時だけ、本人だけが読める 0600 で作る（間に同じ名前のファイルやリンクを置かれても、そこへは書かない）
+    try:
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except OSError:
+        raise Refuse("{} を作れません（もうあるか、ディレクトリに書けない）".format(dest))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(sealed)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(dest, 0o600)
+        # 作った直後に、ファイルから開け直して同じ中身かを確かめる
+        with open(dest, "rb") as f:
+            again = parse_kit(open_kit(f.read(KIT_MAX + 1), phrase), ALLOW_HTTP)
+        if again != kit:
+            raise Refuse("作ったキットを復号し直した中身が、入れたものと違います")
+    except BaseException:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
+    out("   ✓ 復元のキットを作り、復号し直して確認した: {}（本人だけが読める 0600）".format(dest))
+    describe(kit, fpr)
+    out("")
+    out("置き方:")
+    out("   1. キットは 2 か所に置く（例: USB メモリと、クラウドのストレージ）")
+    out("   2. キットのパスフレーズは、キットとは別の所に 2 か所（パスワードマネージャーと、紙）。メモのアプリ 1 か所に全部を置かない")
+    out("   3. 時々 recovery-kit check <キットのファイル> で、今も復号できて中身が正しいことを確認する")
+    return 0
+
+
+# ---------- check ----------
+def cmd_check(argv):
+    flags = {"verify-bucket": False}
+    path = None
+    for arg in argv:
+        if arg.startswith("--") and arg[2:] in flags:
+            flags[arg[2:]] = True
+        elif arg.startswith("-"):
+            usage_error("知らない引数です: {}".format(arg[:40]))
+        elif path is None:
+            path = arg
+        else:
+            usage_error("キットのファイルは 1 つだけ")
+    if path is None:
+        usage_error("キットのファイルを書いてください")
+    try:
+        with open(path, "rb") as f:
+            sealed = f.read(KIT_MAX + 1)
+        mode = os.stat(path).st_mode
+    except OSError:
+        raise Refuse("キットのファイル {} が読めません".format(path))
+    if not sealed or len(sealed) > KIT_MAX:
+        raise Refuse("キットのファイル {} の大きさが違います（空か、大きすぎる。復元のキットでない）".format(path))
+    if mode & 0o044:
+        note("キットのファイルが、ほかの人から読めます（chmod 600 {} に）".format(path))
+    phrase = ask("キットのパスフレーズ")
+    kit = parse_kit(open_kit(sealed, phrase), ALLOW_HTTP)
+    out("復元のキット {}".format(path))
+    out("   ✓ パスフレーズで復号できた・形は合っている（format {}）".format(kit["format"]))
+    fpr = verify_decrypt_key(kit["decrypt_key"], kit.get("decrypt_key_passphrase", ""))
+    out("   ✓ 秘密鍵で、暗号化した印を復号できた")
+    describe(kit, fpr)
+    if "offsite" in kit:
+        endpoint_hint(kit["offsite"]["endpoint"], kit["offsite"]["access_key_id"], kit["offsite"]["secret_access_key"])
+    if flags["verify-bucket"] and "offsite" not in kit:
+        note("このキットにはストレージと読み取り用のアクセスキーが入っていないので、ストレージに届くかは確認していません")
+    elif flags["verify-bucket"]:
+        checked, passed, text = verify_bucket(kit, ALLOW_HTTP)
+        if not passed:
+            raise Refuse(text)
+        if checked:
+            out("   ✓ " + text)
+        else:
+            note(text)
+    out("   秘密鍵の指紋は、サーバーの sudo ec-sugar offsite status の「公開鍵の指紋」と同じはずです")
+    return 0
+
+
+def on_signal(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
+def main():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    os.umask(0o077)
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGHUP, on_signal)
+    argv = sys.argv[1:]
+    try:
+        if argv[0] == "create":
+            return cmd_create(argv[1:])
+        return cmd_check(argv[1:])
+    except Refuse as e:
+        sys.stderr.write("\n止めました: {}\n".format(e.why))
+        for hint in e.hints:
+            sys.stderr.write("   直し方: {}\n".format(hint))
+        return 1
+    except KeyboardInterrupt:
+        sys.stderr.write("\n止めました（割り込み）\n")
+        return 130
+    finally:
+        drop_all_homes()
+
+
+sys.exit(main())
+PYTHON
+exec python3 -I -c "$EC_KIT_PYTHON" "$@"

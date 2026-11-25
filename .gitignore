@@ -1,0 +1,52 @@
+# --- workspace rules (secrets never enter git)
+.env*
+!.env.example
+key.md
+secret*.md
+*.pem
+*.key
+*.p8
+*.sql
+
+# --- laravel
+/.phpunit.cache
+/.phpunit.result.cache
+/bootstrap/ssr
+/node_modules
+/public/build
+/test-results
+/playwright-report
+/blob-report
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/auth.json
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# --- local tooling
+/.phpstan.cache
+/docker/data
+
+# 企画書の PDF は頼まれた時だけ手元で生成する（HTML が正）
+/docs/proposal/*.pdf
+
+# 開発の道具が作る分離した作業場所（git worktree）。中身は各ブランチにある
+/.claude/worktrees/
+
+# 紹介のサイト ec-sugar.jp（別の git のリポジトリ。EC-SUGAR には取り込まない）
+/site/
+
+# テストで DB の種類を渡し忘れた時に Laravel が作る SQLite のファイル（2026-11-05、PR 86 の見直しで見つけた）
+/ec_test*
+/ec_e2e*
+*.sqlite

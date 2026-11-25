@@ -1,0 +1,11 @@
+# CI でだけ使う phpstan の設定。中身は phpstan.neon のまま、同時に動かす処理の数だけを抑える。
+# CI の VM はメモリ 3 GB（当時）で、Postgres の置き場もメモリの上（tmpfs 1 GB）。phpstan は既定で CPU の数（4）だけ処理を並べ、
+# 1 つにつき --memory-limit（1 GB）まで使うので、重なるとメモリが尽きて OS が処理を落とし、走らせ役のサービスまで止まった（2026-11-05）
+# 2026-11-09 に CI の VM を 8 GB・CPU 8 つにしたが、据え置く。走らせ役が 2 つあり、2 つの検査が重なると
+# 既定の数で並べれば phpstan だけで最大 8 GB を超える。phpstan はキャッシュが効くので、2 つまでで遅さはほとんど出ない
+includes:
+    - phpstan.neon
+
+parameters:
+    parallel:
+        maximumNumberOfProcesses: 2

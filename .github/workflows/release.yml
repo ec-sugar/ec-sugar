@@ -1,0 +1,312 @@
+name: release
+
+# 配る道（ADR 0099）。semver のタグ（v1.2.3・v1.2.3-rc.1）を push すると、テストを流してから、
+# アプリのイメージ ghcr.io/ec-sugar/ec-sugar:<タグ> と入口（Caddy）のイメージ ghcr.io/ec-sugar/ec-sugar-caddy:<タグ> を作って GHCR へ置き、
+# cosign の keyless で digest に署名する。作った digest は Release の本文と、この走りのまとめ（Summary）に残す。
+#
+# 署名の身元（入れる側が確かめる値。このファイルの名前を変えると身元が変わり、入れる側が断る）:
+#   identity: https://github.com/ec-sugar/ec-sugar/.github/workflows/release.yml@refs/tags/<タグ>
+#   issuer:   https://token.actions.githubusercontent.com
+# 入れる側は、人の鍵の SSH の署名でタグを確かめ（git verify-tag。公開鍵はサーバーの root の持ち物で、リポジトリには置かない）、
+# タグが指すコミットと、署名の証明書の workflow のコミット（--certificate-github-workflow-sha）が同じかも確かめる。
+# CI の署名だけのイメージは入れない。
+#
+# 外部の action はコミットの SHA で固定する（タグは後から付け替えられる）。横の注記がその SHA のバージョン。
+# 上げるときは、出てから 7 日より後のバージョンを選び、SHA と注記をそろえて変える（tests/Unit/ReleaseWorkflowTest.php が見張る）
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+# 既定は何も許さない。要る権限は仕事ごとに最小だけ付ける
+permissions: {}
+
+# 同じタグの走りを重ねない（途中で止めると、置いたが署名していないイメージが残るので、止めずに待たせる）
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_IMAGE: ghcr.io/ec-sugar/ec-sugar
+  CADDY_IMAGE: ghcr.io/ec-sugar/ec-sugar-caddy
+
+jobs:
+  # タグの確かめ（重い検査の前に、形・署名の形・コミット・核のバージョンを見る）。リポジトリを読むだけ
+  tag:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      # タグの形（semver 2.0。頭に v。build の印「+…」は付けない: イメージのタグに使えないため）。違えば何も作らずに止める
+      - name: Check the tag is semver
+        id: tag
+        env:
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != tag ]; then
+            echo "タグの push でだけ動かします（${REF}）"
+            exit 1
+          fi
+          tag="${REF#refs/tags/}"
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if ! [[ "$tag" =~ $semver ]] || [ "${#tag}" -gt 128 ]; then
+            echo "タグ ${tag} は semver の形（v1.2.3・v1.2.3-rc.1）ではありません。何も作らずに止めます"
+            exit 1
+          fi
+          prerelease=false
+          case "$tag" in *-*) prerelease=true ;; esac
+          {
+            echo "tag=${tag}"
+            echo "core=${tag%%-*}"
+            echo "prerelease=${prerelease}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # タグが注記つきで SSH の署名の形を持ち、この走りのコミットを指すか（git tag -s の付け忘れを、配る前に気づくため）。
+      # ここでは「誰の鍵か」は確かめない（公開鍵をリポジトリに置かないので、確かめるのは入れる側のサーバー）。
+      # 取り出し（checkout）はタグを軽いタグに置き換えることがあるので、GitHub の API で元のタグを読む
+      - name: Check the tag is signed and points at this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          if [ "$(jq -r '.object.type' <<< "$ref")" != tag ]; then
+            echo "タグ ${TAG} は注記つきのタグではありません（git tag -s で作る。docs/development/release.md の「リリースの手順」）"
+            exit 1
+          fi
+          obj="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/$(jq -r '.object.sha' <<< "$ref")")"
+          if [ "$(jq -r '.object.type' <<< "$obj")" != commit ] || [ "$(jq -r '.object.sha' <<< "$obj")" != "$GITHUB_SHA" ]; then
+            echo "タグ ${TAG} がこの走りのコミット（${GITHUB_SHA}）を指していません"
+            exit 1
+          fi
+          if ! jq -r '(.verification.signature // "") + "\n" + (.message // "")' <<< "$obj" | grep -q -- '-----BEGIN SSH SIGNATURE-----'; then
+            echo "タグ ${TAG} に SSH の署名がありません（git config gpg.format ssh の後に git tag -s で作る）"
+            exit 1
+          fi
+          echo "タグ ${TAG} は注記つきで SSH の署名があり、${GITHUB_SHA} を指す"
+
+      # 核のバージョン（App\Core\Version::CORE）がタグとそろっているか（そろえ忘れたコミットにタグを付けたら止める）
+      - name: Check the core version matches the tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          CORE_TAG: ${{ steps.tag.outputs.core }}
+        run: |
+          set -euo pipefail
+          core="$(sed -n "s/.*public const string CORE = '\([^']*\)';.*/\1/p" app/Core/Version.php)"
+          if [ "v${core}" != "$TAG" ] && [ "v${core}" != "$CORE_TAG" ]; then
+            echo "核のバージョン ${core}（app/Core/Version.php）がタグ ${TAG} とそろっていません"
+            exit 1
+          fi
+          echo "核のバージョン ${core}"
+
+  # 配る前に、ふだんの検査（pint・phpstan・PHP のテスト）を同じコミットで流す
+  tests:
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    needs: [tag, tests]
+    # 写し（fork）では動かさない。署名の身元はこのリポジトリだけ
+    if: github.repository == 'ec-sugar/ec-sugar'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # この仕事だけが置き場へ書け（packages）、署名のための短い身元の証（id-token）を取れる。リポジトリの中身は読むだけ
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      app_digest: ${{ steps.digests.outputs.app }}
+      caddy_digest: ${{ steps.digests.outputs.caddy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # バージョンの日時（コミットの日時、ISO 8601）。アプリが今のバージョンとして見せる。形を確かめてから渡す
+      - name: Read the revision date
+        id: revision
+        run: |
+          set -euo pipefail
+          date="$(git log -1 --format=%cI "$GITHUB_SHA")"
+          [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([+-][0-9]{2}:[0-9]{2}|Z)$ ]] || { echo "コミットの日時が読めません（${date}）"; exit 1; }
+          echo "date=${date}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # キャッシュは使わない（配るものは毎回まっさらから。ほかの走りが残したキャッシュを混ぜない）。土台は Dockerfile で digest まで固定してある。
+      # 1.0 は linux/amd64 だけ（arm64 は 1.0 の後）。provenance と SBOM の添え物は 1.0 では付けない（digest を 1 つの manifest にして、確かめを単純にする）
+      - name: Build and push the app image
+        id: app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: app
+          platforms: linux/amd64
+          push: true
+          pull: true
+          no-cache: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.APP_IMAGE }}:${{ needs.tag.outputs.tag }}
+          build-args: |
+            EC_SUGAR_REVISION=${{ github.sha }}
+            EC_SUGAR_REVISION_DATE=${{ steps.revision.outputs.date }}
+          labels: |
+            org.opencontainers.image.title=EC-SUGAR
+            org.opencontainers.image.source=https://github.com/ec-sugar/ec-sugar
+            org.opencontainers.image.version=${{ needs.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - name: Build and push the Caddy image
+        id: caddy
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: docker/caddy
+          file: docker/caddy/Dockerfile
+          platforms: linux/amd64
+          push: true
+          pull: true
+          no-cache: true
+          provenance: false
+          sbom: false
+          tags: ${{ env.CADDY_IMAGE }}:${{ needs.tag.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=EC-SUGAR Caddy
+            org.opencontainers.image.source=https://github.com/ec-sugar/ec-sugar
+            org.opencontainers.image.version=${{ needs.tag.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Check the digests
+        id: digests
+        env:
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          CADDY_DIGEST: ${{ steps.caddy.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for digest in "$APP_DIGEST" "$CADDY_DIGEST"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "digest の形が違います（${digest}）"; exit 1; }
+          done
+          { echo "app=${APP_DIGEST}"; echo "caddy=${CADDY_DIGEST}"; } >> "$GITHUB_OUTPUT"
+
+      # 置いたものそのもの（digest で取り直したもの）で、書き込みの境界を確かめる（コードは root の物・storage/ だけ書ける・起動する）。
+      # 落ちたら署名しない（署名の無いイメージは入れる側が断る）
+      - name: Check write boundary of the pushed app image
+        env:
+          APP_REF: ${{ env.APP_IMAGE }}@${{ steps.digests.outputs.app }}
+        run: |
+          set -euo pipefail
+          docker pull "$APP_REF"
+          bash docker/check-image.sh "$APP_REF"
+
+      # cosign は版を固定して入れる（入れる action が、版の署名を action の中に書いた SHA-256 の cosign で確かめる）
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # keyless の署名（この workflow の身元の短い証明書。預かる鍵は無い）。署名はタグでなく digest に付ける。
+      # 付けた後、入れる側と同じ身元で確かめ直す（このファイルの名前やリポジトリの名前を取り違えたら、ここで落ちる）
+      - name: Sign the images by digest (keyless)
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+          APP_REF: ${{ env.APP_IMAGE }}@${{ steps.digests.outputs.app }}
+          CADDY_REF: ${{ env.CADDY_IMAGE }}@${{ steps.digests.outputs.caddy }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/ec-sugar/ec-sugar/.github/workflows/release.yml@refs/tags/${TAG}"
+          for ref in "$APP_REF" "$CADDY_REF"; do
+            cosign sign --yes "$ref"
+            cosign verify "$ref" \
+              --certificate-identity "$identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-github-workflow-sha "$GITHUB_SHA" > /dev/null
+            echo "署名して確かめた: ${ref}"
+          done
+
+      - name: Summary
+        env:
+          TAG: ${{ needs.tag.outputs.tag }}
+          APP_REF: ${{ env.APP_IMAGE }}@${{ steps.digests.outputs.app }}
+          CADDY_REF: ${{ env.CADDY_IMAGE }}@${{ steps.digests.outputs.caddy }}
+        run: |
+          {
+            echo "## EC-SUGAR ${TAG}"
+            echo
+            echo "- コミット: \`${GITHUB_SHA}\`"
+            echo "- アプリ: \`${APP_REF}\`"
+            echo "- 入口（Caddy）: \`${CADDY_REF}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Release を作り、digest と確かめ方を本文に書く。リポジトリへ書けるのはこの仕事だけで、イメージにも署名にも触れない（コードも取り出さない）
+  notes:
+    needs: [tag, images]
+    if: github.repository == 'ec-sugar/ec-sugar'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+          PRERELEASE: ${{ needs.tag.outputs.prerelease }}
+          APP_DIGEST: ${{ needs.images.outputs.app_digest }}
+          CADDY_DIGEST: ${{ needs.images.outputs.caddy_digest }}
+        run: |
+          set -euo pipefail
+          identity="https://github.com/ec-sugar/ec-sugar/.github/workflows/release.yml@refs/tags/${TAG}"
+          {
+            echo "EC-SUGAR ${TAG}（コミット \`${GITHUB_SHA}\`）"
+            echo
+            echo "変更は [CHANGELOG.md](https://github.com/ec-sugar/ec-sugar/blob/${TAG}/CHANGELOG.md) にあります。"
+            echo
+            echo "## イメージ"
+            echo
+            echo "| | digest |"
+            echo "|---|---|"
+            echo "| アプリ \`${APP_IMAGE}:${TAG}\` | \`${APP_DIGEST}\` |"
+            echo "| 入口（Caddy）\`${CADDY_IMAGE}:${TAG}\` | \`${CADDY_DIGEST}\` |"
+            echo
+            echo "## 確かめ方"
+            echo
+            echo "インストーラーと \`ec-sugar update\` が入れる前に確かめます。手で確かめるときは:"
+            echo
+            echo '```sh'
+            echo "git verify-tag ${TAG}   # 人の鍵の SSH の署名（allowed_signers は docs/install.md）"
+            echo "cosign verify ${APP_IMAGE}@${APP_DIGEST} \\"
+            echo "  --certificate-identity ${identity} \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  --certificate-github-workflow-sha ${GITHUB_SHA}"
+            echo '```'
+            echo
+            echo "この本文は手がかりで、確かめの根拠ではありません（本文は書き換えられます）。根拠はタグの署名とイメージの署名の 2 つです。"
+          } > notes.md
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          else
+            flags=()
+            [ "$PRERELEASE" = true ] && flags+=(--prerelease)
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "EC-SUGAR ${TAG}" --notes-file notes.md "${flags[@]}"
+          fi

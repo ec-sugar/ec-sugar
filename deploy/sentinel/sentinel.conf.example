@@ -1,0 +1,34 @@
+# 外部監視 ec-sugar-sentinel の設定の例（ADR 0105。docs/install.md の「外部監視を置く」）
+# key=value の形。# で始まる行と空の行は飛ばす。シェルとしては読まない（$ や ` は書いたまま）。行の後ろに説明を書かない
+
+# 様子の URL（どのホストでもよい。署名はこの URL に .sig を足した所から取る）
+STATUS_URL=https://shop.example.jp/.well-known/ec-sugar/integrity.json
+
+# 公開の鍵（本番のサーバーで `sudo ec-sugar integrity key` が出す PEM を写したもの）
+PUBLIC_KEY=/etc/ec-sugar-sentinel/integrity.pub
+
+# 見張りの合い言葉（任意。本番で `sudo ec-sugar integrity token` が出す 1 行を 0600 のファイルに）。様子の取得にだけ付ける。
+# 付けると、サーバーの中が「外の見張りが来ていない」に気づける
+SENTINEL_TOKEN_FILE=/etc/ec-sugar-sentinel/token
+
+# 指紋を取るページ（LINKS_PAGE と合わせて 20 まで）。トップ・よく売れる商品など、ログインの要らない画面にする
+PAGE=https://shop.example.jp/
+PAGE=https://shop.example.jp/products/example
+# 外の出どころへのリンクの出どころも指紋に入れるページ（偽の支払いの画面へ誘われると困るカートなど）
+LINKS_PAGE=https://shop.example.jp/cart
+
+# 知らせ（どちらか、または両方）
+# Slack 形式の Webhook の URL を 1 行で書いたファイル（自分だけが読める 0600。中身は記録にも知らせにも出さない）
+WEBHOOK_FILE=/etc/ec-sugar-sentinel/webhook
+# 本文を標準入力で渡すコマンド（sh -c で流す）。件名は $EC_SENTINEL_SUBJECT、名前は $EC_SENTINEL_NAME
+# NOTIFY_COMMAND=mail -s "$EC_SENTINEL_SUBJECT" you@example.jp
+
+# 状態と店頭の基準を置くディレクトリ（無ければ 0700 で作る）
+STATE_DIR=/var/lib/ec-sugar-sentinel/shop
+
+# 知らせに出す名前（既定は STATUS_URL のホスト）
+NAME=本番のショップ
+
+# 1 回の確かめの時間の上限（秒、既定 120）と、取る時の User-Agent（既定はふつうのブラウザの形）
+# TIME_LIMIT=120
+# USER_AGENT=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36

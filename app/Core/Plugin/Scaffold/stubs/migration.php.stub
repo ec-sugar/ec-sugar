@@ -1,0 +1,46 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * App「__TITLE__」の表（make:plugin のひな形から。ADR 0025）。プラグインの表なので名前は __PREFIX__ で始め、核の表は作らない・変えない
+ * （核の表への参照の外部キーはよい。PluginMigrationsTest が見張る）。店の DB に流れ、使っていない店でも表はでき、空のまま。
+ *
+ * - __PREFIX___items: 記録の名前（店の人が書く文）・状態・精算した日時
+ * - 規則は DB でも守る（状態の値・空でない名前。アプリの確かめをすり抜けても DB が拒む）
+ * - 金額を持つときは整数（bigInteger。円なら 1 円単位）にし、0 以上などを CHECK で守る
+ * - 列を消す・名前を変える移行は書かない（足すだけ。MigrationsExpandContractTest）
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('__PREFIX___items', function (Blueprint $table): void {
+            $table->ulid('id')->primary();
+            $table->string('title', 100);
+            $table->string('status', 16)->default('open');
+            $table->timestampTz('settled_at')->nullable();
+            $table->timestampsTz();
+
+            // 個人情報の列を足すときの例（平文で置かない。ADR 0010。モデルの casts() と blindIndexes() も書く）:
+            // $table->text('email')->nullable();            // 店の鍵で暗号化（TenantEncrypted のキャスト）
+            // $table->char('email_index', 64)->nullable();  // 探すときだけ。HMAC のブラインドインデックス
+            // $table->index('email_index');
+
+            $table->index(['status', 'created_at']);
+        });
+
+        DB::statement("ALTER TABLE __PREFIX___items ADD CONSTRAINT __PREFIX___items_status_check CHECK (status IN ('open', 'closed'))");
+        DB::statement('ALTER TABLE __PREFIX___items ADD CONSTRAINT __PREFIX___items_title_check CHECK (char_length(btrim(title)) > 0)');
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('__PREFIX___items');
+    }
+};

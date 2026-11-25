@@ -1,0 +1,50 @@
+{
+    "name": "ec-sugar/plugin-downloads",
+    "description": "EC-SUGAR 公式の App: ダウンロード販売（PDF・音楽・動画などのファイルを、ふだんのカートと注文の流れで売り、お支払いが確認できたら、期限と回数のある署名つきのリンクで渡す。ADR 0084）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginDownloads\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginDownloads\\DownloadsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "downloads",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "days": {
+                    "type": "text",
+                    "label": "ダウンロードの期限（お支払いからの日数）",
+                    "help": "1〜365 日。空なら 30 日です。商品ごとに変えることもできます（商品の画面の App の欄）。",
+                    "pattern": "[0-9]{1,3}",
+                    "max": 3
+                },
+                "limit": {
+                    "type": "text",
+                    "label": "1 つのファイルをダウンロードできる回数",
+                    "help": "1〜100 回。空なら 5 回です。回数を使い切ったお客さんには、注文の画面から回数をリセットできます。",
+                    "pattern": "[0-9]{1,3}",
+                    "max": 3
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,130 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__;
+
+use App\Core\Event\EventStore;
+use App\Core\Plugin\AdminPage\AdminActionRefused;
+use App\Core\Plugin\AdminPage\AdminRecordNotFound;
+use EcSugar\Plugin__STUDLY__\Models\__STUDLY__Item;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * __TITLE__の記録を足す・直す・終える・精算済みにする（make:plugin のひな形から）。状態を変えるのはここだけ（モデルを直に書き換えない）。
+ * どれも DB のトランザクションの中で、最初に連鎖のロック（EventStore::lock()）を取り、その後に行のロック（lockForUpdate）を取り、
+ * 状態を変えたのと同じトランザクションでイベント（__PREFIX__.created など）を残す（conventions.md の 3、ADR 0012。順を逆にするとデッドロックする）。
+ * イベントの中身は ID・状態・変えた欄の名前だけ（店の人やお客さんが書いた文・個人情報は入れない。ADR 0010）。
+ * actor は呼ぶ側が渡す（管理画面は operator:<ID>、ショップのお客さんは storefront、定期の処理は system:__NAME__、CLI は cli:<名前>）
+ */
+final class __STUDLY__Items
+{
+    /** 1 つの店に置ける記録の数（ホストする店でも表が膨らまないように） */
+    public const int MAX_ITEMS = 1000;
+
+    public const int TITLE_MAX = 100;
+
+    public function __construct(private readonly EventStore $events) {}
+
+    /**
+     * @param  array<string, mixed>  $values  title（管理画面からは、核が形を確かめた後の値）
+     */
+    public function create(array $values, string $actor): string
+    {
+        return DB::transaction(function () use ($values, $actor): string {
+            $this->events->lock();
+
+            if (__STUDLY__Item::query()->count() >= self::MAX_ITEMS) {
+                throw ValidationException::withMessages(['values' => '記録は '.self::MAX_ITEMS.' 件までです。使わない記録を終えてから足してください。']);
+            }
+
+            $item = __STUDLY__Item::query()->create(['title' => self::title($values), 'status' => __STUDLY__Status::Open]);
+            $this->events->append('__PREFIX__.created', '__PREFIX___item', $item->id, ['status' => $item->status->value], $actor);
+
+            return $item->id;
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     */
+    public function update(string $id, array $values, string $actor): void
+    {
+        DB::transaction(function () use ($id, $values, $actor): void {
+            $this->events->lock();
+            $item = self::locked($id);
+            $title = self::title($values);
+
+            if ($item->title === $title) {
+                return;
+            }
+
+            $item->forceFill(['title' => $title])->save();
+            $this->events->append('__PREFIX__.updated', '__PREFIX___item', $item->id, ['changed' => ['title']], $actor);
+        });
+    }
+
+    /**
+     * 受付を終える。もう終わっていれば断る（文は店の人にそのまま見せる）
+     */
+    public function close(string $id, string $actor): void
+    {
+        DB::transaction(function () use ($id, $actor): void {
+            $this->events->lock();
+            $item = self::locked($id);
+
+            if ($item->status !== __STUDLY__Status::Open) {
+                throw new AdminActionRefused('この記録はもう終わっています。');
+            }
+
+            $item->forceFill(['status' => __STUDLY__Status::Closed])->save();
+            $this->events->append('__PREFIX__.closed', '__PREFIX___item', $item->id, ['status' => __STUDLY__Status::Closed->value], $actor);
+        });
+    }
+
+    /**
+     * 精算済みにする（お金の操作の書き方の例）。管理画面では AdminAction の money: true で、核が「お金」の段階と
+     * パスキーでの直前の再確認を確かめてから呼ぶ（ADR 0024・0051）。
+     * 本当にお金を動かす（返金・入金の記録）ときは、ここで核のサービス（取引・台帳・支払い）を同じトランザクションの中で呼ぶ。
+     * 金額は整数（円）で扱い、App の表に金額の正を持たない（正は核の台帳）
+     */
+    public function settle(string $id, string $actor): void
+    {
+        DB::transaction(function () use ($id, $actor): void {
+            $this->events->lock();
+            $item = self::locked($id);
+
+            if ($item->settled_at !== null) {
+                throw new AdminActionRefused('この記録はもう精算済みです。');
+            }
+
+            $item->forceFill(['settled_at' => now()])->save();
+            $this->events->append('__PREFIX__.settled', '__PREFIX___item', $item->id, [], $actor);
+        });
+    }
+
+    /**
+     * 連鎖のロックの後に、行のロックを取って読む（無ければ管理画面では 404）
+     */
+    private static function locked(string $id): __STUDLY__Item
+    {
+        return __STUDLY__Item::query()->whereKey($id)->lockForUpdate()->first() ?? throw new AdminRecordNotFound;
+    }
+
+    /**
+     * 名前の値（前後の空白を外す）。空・長すぎるものは欄の誤り（管理画面の外から呼ぶときの守り。DB の CHECK も拒む）
+     *
+     * @param  array<string, mixed>  $values
+     */
+    private static function title(array $values): string
+    {
+        $title = trim(is_string($values['title'] ?? null) ? $values['title'] : '');
+
+        if ($title === '' || mb_strlen($title) > self::TITLE_MAX) {
+            throw ValidationException::withMessages(['title' => '名前は 1〜'.self::TITLE_MAX.' 文字で入れてください。']);
+        }
+
+        return $title;
+    }
+}

@@ -1,0 +1,293 @@
+/*
+ * 管理画面の見た目の土台（決まりは docs/design/admin-ui.md）。
+ *
+ * - 色・文字・角丸はここのトークン（CSS の変数）だけで決める。画面や部品は Tailwind のクラスでトークンを使い、色の値を直接書かない
+ * - 意味で名前を付ける（canvas = 地、surface = 白いパネル、ink = 文字、accent = 差し色）。ダークモードは同じ名前の値を入れ替えるだけ
+ * - Tailwind のクラスは components/ui の部品の中に書き、各画面は部品を組み合わせる（統一感を部品で保つ）
+ * - 外部のフォント・画像は読まない（CSP は 'self' だけ）。フォントは OS 標準（ベイジの 21）
+ * - 灰の地に浮かせる見た目: 少し濃い灰の地に、角の丸い白い板（メニュー）と白い大きなカードを、輪郭も影も付けずに浮かせる。決めの色は藍のまま
+ */
+@import "tailwindcss" source("./");
+
+@theme {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", Meiryo, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* 面。canvas は白い板とカードが浮いて見える濃さの灰。selected はメニューの選択中（白い板の上の灰の面） */
+    --color-canvas: #eceef1;
+    --color-surface: #ffffff;
+    --color-subtle: #f4f5f7;
+    --color-hover: #eef0f4;
+    --color-selected: #eceef1;
+    --color-line: #e6e8ec;
+    --color-line-strong: #d3d7de;
+
+    /* 文字。地の色との組み合わせは tests/Unit/AdminContrastTest が WCAG AA（4.5:1）で検査する。faint は飾りと 0 の数だけ */
+    --color-ink: #111827;
+    --color-ink-muted: #374151;
+    --color-ink-soft: #5f6673;
+    --color-ink-faint: #9ca3af;
+
+    /* 差し色（藍）。主なボタン・選択中・リンクだけに使う */
+    --color-accent: #3451b2;
+    --color-accent-hover: #26408f;
+    --color-accent-soft: #e0e7ff;
+    --color-on-accent: #ffffff;
+
+    /* 看板（ログインと登録の画面の左の板。ADR 0031）。濃い藍の地に、白とうすい藍の文字 */
+    --color-brand: #1f2f73;
+    --color-on-brand: #ffffff;
+    --color-on-brand-soft: #c3cdf2;
+
+    /* 状態。色だけに頼らず、必ず文字と一緒に使う（ベイジの 3） */
+    --color-ok: #16a34a;
+    --color-ok-soft: #ecfdf3;
+    --color-ok-ink: #166534;
+    --color-warn: #d97706;
+    --color-warn-soft: #fffbeb;
+    --color-warn-ink: #92400e;
+    --color-danger: #b42318;
+    --color-danger-soft: #fef3f2;
+    --color-danger-ink: #912018;
+    --color-info-soft: #eef2ff;
+    --color-info-ink: #2b3f8c;
+    --color-idle: #9ca3af;
+
+    /* 角の丸み。card は白い大きなカード（AppPanel・ログインの枠・エラーの画面）、board はメニューの白い板 */
+    --radius-card: 1.25rem;
+    --radius-board: 1rem;
+
+    /* 影。輪郭は付けず、地の色との差で分ける。float は画面の上に浮かせるもの（下に固定した操作の帯）だけ、
+       pop は押して開く小さな窓（店の切り替えの中）だけ */
+    --shadow-float: 0 -2px 12px rgb(17 24 39 / 0.1), 0 1px 2px rgb(17 24 39 / 0.06);
+    --shadow-pop: 0 8px 24px rgb(17 24 39 / 0.14), 0 1px 3px rgb(17 24 39 / 0.08);
+
+    /* 余白。gutter は中身の左右、card は大きなカードの中 */
+    --spacing-gutter: 2.5rem;
+    --spacing-card: 2rem;
+
+    /*
+     * 動き（使い方は docs/design/admin-ui.md の「動き」、値は components/ui/motion.js と同じ）。
+     * 控えめに: 押した・開いた・変わった時だけ 0.15〜0.25 秒、移動は数 px。transform と opacity だけを動かす
+     *   reveal-x: 横から数 px で出る（メニューを開いた時の名前） / reveal-y: 上から数 px で出る（開いた欄の中身） / pop: 少し縮めた形から出る（本人確認の窓） / fade: 薄く出る（窓の後ろの幕）
+     */
+    --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+    --animate-reveal-x: reveal-x 0.2s var(--ease-soft);
+    --animate-reveal-y: reveal-y 0.2s var(--ease-soft);
+    --animate-pop: pop 0.2s var(--ease-soft);
+    --animate-fade: fade 0.2s var(--ease-soft);
+
+    @keyframes reveal-x {
+        from {
+            opacity: 0;
+            transform: translateX(-4px);
+        }
+    }
+
+    @keyframes reveal-y {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+    }
+
+    @keyframes pop {
+        from {
+            opacity: 0;
+            transform: scale(0.97);
+        }
+    }
+
+    @keyframes fade {
+        from {
+            opacity: 0;
+        }
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-canvas: #0c0e12;
+        --color-surface: #171a21;
+        --color-subtle: #1f232b;
+        --color-hover: #252a33;
+        --color-selected: #252a33;
+        --color-line: #262b34;
+        --color-line-strong: #39404c;
+
+        --color-ink: #e8eaef;
+        --color-ink-muted: #c4c9d3;
+        --color-ink-soft: #9aa2b0;
+        --color-ink-faint: #6b7280;
+
+        --color-accent: #8ea2ff;
+        --color-accent-hover: #a9b8ff;
+        --color-accent-soft: #232c4d;
+        --color-on-accent: #0b1020;
+
+        --color-brand: #141c40;
+        --color-on-brand: #e8eaef;
+        --color-on-brand-soft: #a9b5e6;
+
+        --color-ok: #4ade80;
+        --color-ok-soft: #10261a;
+        --color-ok-ink: #86efac;
+        --color-warn: #fbbf24;
+        --color-warn-soft: #2a2010;
+        --color-warn-ink: #fcd34d;
+        --color-danger: #f97066;
+        --color-danger-soft: #2d1513;
+        --color-danger-ink: #fda29b;
+        --color-info-soft: #1b2340;
+        --color-info-ink: #c7d2fe;
+        --color-idle: #6b7280;
+    }
+}
+
+@layer base {
+    :root {
+        color-scheme: light dark;
+    }
+
+    html,
+    body {
+        @apply bg-canvas text-ink font-sans text-sm leading-relaxed antialiased;
+    }
+
+    /* キーボードで操作している時だけ、はっきりした枠を出す */
+    :focus-visible {
+        @apply outline-2 outline-offset-2 outline-accent;
+    }
+
+    a {
+        @apply text-accent hover:text-accent-hover;
+    }
+
+    /* 折りたたむ欄（details）を開いた時、中身を上から数 px でふわっと出す。閉じるのはすぐ */
+    details[open] > :not(summary) {
+        animation: var(--animate-reveal-y);
+    }
+
+    /* 端末の「動きを減らす」を選んだ人には、CSS の動きを止めて最後の形で見せる（motion-v の分は App.vue の MotionConfig が止める） */
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        ::before,
+        ::after,
+        ::backdrop {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
+}
+
+@utility tabular {
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 「見たまま書ける文」の編集の箱（RichTextEditor）。中身は部品が要素を 1 つずつ作るので、Tailwind のクラスを付けられない。
+ * ショップの核の CSS（.sugar-html）に近い形を、管理画面のトークンで付ける（色はトークンだけ）
+ */
+@layer components {
+    .rich-text {
+        overflow-wrap: anywhere;
+    }
+
+    .rich-text > :first-child {
+        margin-top: 0;
+    }
+
+    .rich-text :is(h2, h3, h4, h5, h6) {
+        margin: 1.25em 0 0.5em;
+        font-weight: 700;
+        line-height: 1.5;
+    }
+
+    .rich-text h2 {
+        font-size: 1.25rem;
+    }
+
+    .rich-text h3 {
+        font-size: 1.0625rem;
+    }
+
+    .rich-text :is(p, ul, ol, dl, blockquote, figure, pre, table, details) {
+        margin: 0 0 0.75em;
+    }
+
+    .rich-text :is(ul, ol) {
+        padding-left: 1.5em;
+    }
+
+    .rich-text ul {
+        list-style: disc;
+    }
+
+    .rich-text ol {
+        list-style: decimal;
+    }
+
+    .rich-text :is(strong, b) {
+        font-weight: 700;
+    }
+
+    .rich-text :is(em, i) {
+        font-style: italic;
+    }
+
+    .rich-text a {
+        text-decoration: underline;
+    }
+
+    .rich-text a.sugar-btn {
+        display: inline-block;
+        padding: 0.375rem 1rem;
+        border-radius: 999px;
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .rich-text .sugar-align-center {
+        text-align: center;
+    }
+
+    .rich-text blockquote {
+        padding-left: 0.75em;
+        border-left: 3px solid var(--color-line-strong);
+        color: var(--color-ink-soft);
+    }
+
+    .rich-text hr {
+        margin: 1.25em 0;
+        border: 0;
+        border-top: 1px solid var(--color-line-strong);
+    }
+
+    .rich-text img {
+        display: block;
+        max-width: 100%;
+        max-height: 16rem;
+        height: auto;
+        border-radius: 0.5rem;
+    }
+
+    .rich-text table {
+        border-collapse: collapse;
+    }
+
+    .rich-text :is(th, td) {
+        min-width: 4rem;
+        padding: 0.25em 0.5em;
+        border: 1px solid var(--color-line-strong);
+        text-align: left;
+        vertical-align: top;
+    }
+
+    .rich-text th {
+        font-weight: 700;
+    }
+}

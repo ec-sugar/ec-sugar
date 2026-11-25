@@ -1,0 +1,141 @@
+# EC-SUGAR の入口（Caddy）。https を受け、証明書を取り・取り直し、後ろの nginx（内側の網の http）へ渡す（ADR 0031）
+#
+# docker-compose.prod.yml が、取り出したバージョンのこの置き場（docker/caddy/etc/）を /etc/caddy に読み取り専用で差し込む。
+# {$…} は compose が渡す環境変数（値は env ファイルから。既定は compose に書いてある）:
+#   EC_SUGAR_ADMIN_HOST    管理画面のホスト（例 admin.example.jp）
+#   EC_SUGAR_SHOPS         店の数の形。single（既定。1 店舗。ショップのホストは自分のドメインそのもの）か multi（複数の店。*.<ショップのドメイン>）
+#   EC_SUGAR_SITE_SHOP     ショップの場所の名前（single は例 example.jp、multi は例 *.example.jp。install.sh が答えから決める）
+#   EC_SUGAR_TLS_MODE      証明書の取り方（下の 3 つのどれか。install.sh が答えから決める）
+#     auto    既定。管理画面のホストは起動のときに取り、店のホストは初めて来たときにその場で取る（on-demand TLS）。
+#             取る前に EC-SUGAR の内側の経路に「この名前は管理画面か、ある店か」を聞き、違えば取らない
+#     dns     外から届かないステージング用。Cloudflare の DNS の API の鍵（ファイル）で、DNS で確かめて管理画面と *.ショップのドメインを取る
+#     manual  手で用意した証明書（管理画面のホストと *.ショップのドメインを含むもの）を読む。取りに行かない
+#   EC_SUGAR_ACME_CA / EC_SUGAR_ACME_CA_ROOT   ACME の取り先とその証明書の根（既定は Let's Encrypt の本番と OS の根。試験で Pebble に向けるときだけ替える）
+#
+# 秘密（DNS の API の鍵・手で用意した秘密の鍵）は /run/secrets/ec-sugar の下のファイル（ホストの /srv/ec-sugar/secrets/caddy。
+# Caddy の利用者だけが読める 0400）で受ける。環境変数やコマンドの引数には出さない。
+# 証明書と ACME のアカウントの鍵は /data（名前つきの置き場 caddy_data）の中だけ。nginx・PHP のコンテナには差し込まない
+{
+	# 管理の API（既定の 2019 番）を切る。設定を外から書き換えさせない
+	admin off
+	persist_config off
+	storage file_system /data/caddy
+
+	acme_ca {$EC_SUGAR_ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+	acme_ca_root {$EC_SUGAR_ACME_CA_ROOT:/etc/ssl/certs/ca-certificates.crt}
+
+	# http から https への送りは下の http:// で自分で書く（どのホストにも同じ形で）
+	auto_https disable_redirects
+
+	# 店のホストの証明書をその場で取る前に聞く先。nginx の内側のポート（8081）で、Caddy の住所からだけ受ける
+	on_demand_tls {
+		ask http://web:8081/internal/tls/allowed
+	}
+
+	servers {
+		# 前の代理を信じるかと、TLS の名前（SNI）と Host が違う要求を断るか（strict_sni_host）は、入口の形ごと（EC_SUGAR_FRONT。ADR 0052）:
+		#   front-caddy.servers  何も信じない（外から来た X-Forwarded-For などを捨てる）。SNI と Host が違えば 421（strict_sni_host on）
+		#   front-tunnel.servers cloudflared の住所から来た接続の CF-Connecting-IP だけを信じる。SNI と Host の違いは断らない
+		#                        （cloudflared は同じ行き先への接続を使い回し、ある店の名前で握手した接続に別の店の要求を載せるため）
+		import /etc/caddy/front-{$EC_SUGAR_FRONT:caddy}.servers
+		# 受けるのは TCP の 443 番だけ（UDP は出していない）なので、HTTP/3 を案内しない
+		protocols h1 h2
+	}
+}
+
+# 後ろの nginx へ渡す共通の形
+(edge) {
+	# 作り手の名前を出さない（Caddy の Server・Via と、nginx の Server を隠す）
+	header -Server
+	header -Via
+	# Cloudflare から http のまま来た要求（CF-Visitor に "scheme":"http"）は https へ送る。Tunnel の形では cloudflared がいつも https で
+	# つなぐので、下の http:// の送りが効かず、Cloudflare の画面の「常に HTTPS」が外れると平文のまま通るため（見直しの軽 1）。
+	# ほかの形で外から偽の CF-Visitor が来ても、https で来ている要求を https へ送るだけ
+	@cloudflare_http header CF-Visitor `*"scheme":"http"*`
+	redir @cloudflare_http https://{host}{uri} permanent
+	# 圧縮はここでする。後ろの nginx は圧縮しない（gzip を書いていない。公式のイメージの既定も切ってある）ので二重にならない。
+	# HTML は圧縮しない。ショップの HTML には、同じ本文に CSRF の合い言葉と画面の鍵と、攻める人が決められる文字
+	# （検索の言葉・同意の帯の戻り先の道筋）が並ぶ。圧縮すると暗号の長さから合い言葉を少しずつ当てられる（BREACH）。ショップの Cookie は
+	# SameSite=Lax で、よそのサイトからの画面の移動（GET）には付くので、攻める人がお客さんのブラウザに何度も開かせられる。
+	# 下の no-transform で Cloudflare も HTML を圧縮しないので、Tunnel の形でも HTML は圧縮されずに届く。
+	# 圧縮するのは CSS・JavaScript・JSON・SVG・XML・フォントなど（Caddy の既定の一覧から HTML〔text/html・application/xhtml+xml〕を外したもの。
+	# text/* はまとめて書かず種類ごとに書くので、CSV の書き出しも圧縮しない）。最小の大きさは Caddy の既定（512 バイト）。写真・ZIP は圧縮しない。
+	# JSON はショップの合い言葉も画面の鍵も載せず、管理画面の Cookie は SameSite=Strict（よそのサイトからの移動にも付かない）なので圧縮する
+	encode zstd gzip {
+		match {
+			header Content-Type text/css*
+			header Content-Type text/javascript*
+			header Content-Type text/plain*
+			header Content-Type text/xml*
+			header Content-Type application/javascript*
+			header Content-Type application/x-javascript*
+			header Content-Type application/json*
+			header Content-Type application/ld+json*
+			header Content-Type application/manifest+json*
+			header Content-Type application/vnd.api+json*
+			header Content-Type application/xml*
+			header Content-Type application/rss+xml*
+			header Content-Type application/atom+xml*
+			header Content-Type application/wasm*
+			header Content-Type image/svg+xml*
+			header Content-Type image/x-icon*
+			header Content-Type image/vnd.microsoft.icon*
+			header Content-Type font/ttf*
+			header Content-Type font/otf*
+		}
+	}
+	# HTML の応答だけ、前の CDN（Cloudflare など）に書き換えさせない印 no-transform を Cache-Control の後ろに足す。
+	# Cloudflare の「メールアドレスの難読化」などは HTML を書き換えて戻す script を差し込み、それをショップの CSP（Trusted Types）が止めるため、
+	# メールアドレスが「[email protected]」のまま残った（2026-11-10 に本番で）。ほかの値（private・no-store など）はそのまま残す。
+	# アプリでなくここで付けるのは、上の encode が no-transform の付いた応答を圧縮しないため（Caddy 2.11.7 で確かめた。今は HTML を圧縮しないが、
+	# 印を付ける所は入口に 1 つのまま）。応答の絞り込み（match）のある header は応答を書く直前に効く。
+	# 写真などには付けない（Cloudflare の画像の最適化を止めない）。Cache-Control の無い HTML（nginx が返すエラーの画面）には足さない
+	header {
+		match header Content-Type text/html*
+		Cache-Control "^(.*)$" "$1, no-transform"
+	}
+	reverse_proxy web:8080 {
+		# 接続元: nginx へは Caddy が決めた接続元（{client_ip}）だけを渡す。信じる代理が無い形（caddy）では Caddy が見た住所そのもの、
+		# Tunnel の形では cloudflared から来た時だけ CF-Connecting-IP の値（ほかから来たら見た住所）。外から来た X-Forwarded-For は残さない。
+		# nginx はこの見出しを Caddy の住所からだけ信じる（偽の見出しで接続元を変えられないことは、使い捨ての Ubuntu で確かめた）
+		header_up X-Forwarded-For {client_ip}
+		header_up -CF-Connecting-IP
+		header_up -True-Client-IP
+		header_up -CF-Connecting-IPv6
+		header_up -CF-Pseudo-IPv4
+		header_up -CF-Visitor
+		header_up -Forwarded
+		header_up -X-Real-IP
+		header_up -X-Original-URL
+		header_up -X-Rewrite-URL
+		header_down -Server
+		header_down -Via
+		# nginx を作り直している数秒（更新の入れ替え）は、つながるまで待つ
+		lb_try_duration 10s
+	}
+}
+
+# http は https へ送るだけ（ACME の HTTP での確かめ〔/.well-known/acme-challenge/〕は Caddy がこの前に自分で答える）
+http:// {
+	header -Server
+	redir https://{host}{uri} permanent
+}
+
+# 入口が生きているかの確かめ（compose の healthcheck）。コンテナの中の 127.0.0.1 だけ
+http://:8079 {
+	bind 127.0.0.1
+	respond /healthz "ok" 200
+	respond 404
+}
+
+# 証明書の取り方ごとの場所（auto・dns・manual）
+import /etc/caddy/tls-{$EC_SUGAR_TLS_MODE:auto}.caddy
+
+# どの場所にも合わない名前の受け止め。証明書は覆っているが場所の無い名前（1 店舗の形に戻した後の *.<ドメイン> の店のホスト、
+# ショップのドメインそのもの〔複数の店の形〕、Tunnel の形で ある名前の接続に載った知らない Host など）は、Caddy の既定だと空の 200 が返って紛らわしい。
+# 名前の無い場所は Caddy がいちばん後ろに並べるので、上の場所に合わない要求だけがここに来る。後ろへは渡さない。
+# 名前が無いので証明書は取らず、その場で取る決まり（on_demand）も持たない（覆っていない名前は今までどおり握手で断る）
+https:// {
+	header -Server
+	respond 404
+}

@@ -1,0 +1,98 @@
+{
+    "name": "ec-sugar/plugin-line",
+    "description": "EC-SUGAR 公式の App: LINE 連携（会員が LINE でログイン・登録でき、連携した会員に注文と発送のお知らせを LINE でも送る。LINE ログインと Messaging API）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginLine\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginLine\\LineServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "line",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "customers",
+            "settings": {
+                "login_channel_id": {
+                    "type": "text",
+                    "label": "LINE ログインのチャネル ID",
+                    "help": "LINE Developers コンソールの LINE ログインのチャネルの「チャネル基本設定」にある、10 桁の数字のチャネル ID。",
+                    "pattern": "[0-9]{10}",
+                    "max": 10
+                },
+                "login_channel_secret": {
+                    "type": "text",
+                    "label": "LINE ログインのチャネルシークレット",
+                    "help": "同じ画面のチャネルシークレット（英小文字と数字の 32 文字）。入れた値は画面に出しません。",
+                    "secret": true,
+                    "pattern": "[0-9a-f]{32}",
+                    "max": 32
+                },
+                "messaging_access_token": {
+                    "type": "text",
+                    "label": "Messaging API のチャネルアクセストークン",
+                    "help": "LINE 公式アカウントの Messaging API のチャネルの「Messaging API 設定」で発行する、チャネルアクセストークン（長期）。入れた値は画面に出しません。",
+                    "secret": true,
+                    "pattern": "[A-Za-z0-9+/=._-]{20,200}",
+                    "max": 200
+                },
+                "messaging_channel_secret": {
+                    "type": "text",
+                    "label": "Messaging API のチャネルシークレット",
+                    "help": "Messaging API のチャネルの「チャネル基本設定」にあるチャネルシークレット（英小文字と数字の 32 文字）。友だち追加・ブロックの通知（Webhook）が LINE から届いたものか確認するのに使います。入れた値は画面に出しません。",
+                    "secret": true,
+                    "pattern": "[0-9a-f]{32}",
+                    "max": 32
+                },
+                "bot_prompt": {
+                    "type": "choice",
+                    "label": "ログインの時の友だち追加",
+                    "help": "LINE でログインする時に、お店の LINE 公式アカウントの友だち追加を出すか。LINE ログインのチャネルに公式アカウントをリンクしておく必要があります。",
+                    "options": {
+                        "normal": "同意の画面に「友だち追加」の欄を出す",
+                        "aggressive": "同意の後に友だち追加の画面を出す",
+                        "off": "出さない"
+                    },
+                    "default": "normal"
+                },
+                "on_paid": {
+                    "type": "toggle",
+                    "label": "注文を受けたら LINE でも通知する",
+                    "help": "LINE と連携し、お店の LINE 公式アカウントと友だちの会員に、お支払いが確認できた時に通知します（メールも送ります）。使うときは、ショップのプライバシーポリシーに LINE での通知（LINE ヤフーへ送る情報）を書き足してください。",
+                    "default": true
+                },
+                "on_shipped": {
+                    "type": "toggle",
+                    "label": "発送したら LINE でも通知する",
+                    "help": "発送を登録した時に通知します（追跡番号があれば載せます）。",
+                    "default": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "LINE ヤフー株式会社（LINE）",
+                    "data": "「LINE でログイン」を押した時: LINE のログインの画面へ移り、LINE からこのショップへ、LINE の利用者の識別子（このお店のためのもの）と表示名が届きます。LINE と連携した会員へお知らせを送る時: お店のサーバーから LINE へ、その識別子と、お店の名前・注文番号・ご注文の状況のページの URL を送ります（住所・金額の明細は送りません）",
+                    "purpose": "LINE のアカウントでショップにログインできるようにするため、注文の受付と発送を LINE でもお知らせするため",
+                    "policy": "https://line.me/ja/terms/policy/"
+                }
+            ]
+        }
+    }
+}

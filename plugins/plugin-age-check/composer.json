@@ -1,0 +1,42 @@
+{
+    "name": "ec-sugar/plugin-age-check",
+    "description": "EC-SUGAR 公式の App: 年齢確認（お酒・たばこなど、年齢確認が必要な商品の注文で、生年月日と同意を確認する。ADR 0077）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginAgeCheck\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginAgeCheck\\AgeCheckServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "age-check",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling",
+            "settings": {
+                "gate": {
+                    "type": "toggle",
+                    "label": "商品の画面で、はじめに年齢をたずねる",
+                    "help": "オンにすると、年齢確認が必要な商品の画面をはじめて開いた方に「20 歳以上ですか」の画面を出します（答えはお客さんのブラウザにだけ保存します）。オフにしても、注文の時の年齢確認は必ず行います。検索エンジンのクローラーや商品フィードから来た方も、まずこの画面が表示されます。",
+                    "default": false
+                }
+            }
+        }
+    }
+}

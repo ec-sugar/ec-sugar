@@ -1,0 +1,28 @@
+# 証明書の取り方 auto（既定。外から 80・443 番に届くサーバー）。Caddyfile から読み込む
+#
+# 場所は管理画面とショップの 2 つだけ。どちらにも合わない名前（ほかのドメイン・店の独自ドメイン）は、合う場所が無いので握手で断る。
+# EC_SUGAR_SITE_SHOP は、1 店舗の形（EC_SUGAR_SHOPS=single、既定）ではショップのホストそのもの（例 example.jp）、
+# 複数の店の形（multi）では *.<ショップのドメイン>（例 *.example.jp）
+#
+# 1 店舗の形: 2 つの名前を起動のときに取り、期限の前に取り直す（ふつうの自動の証明書）。その場で取らないので、問い合わせ（ask）も使わない
+# 複数の店の形: 初めて来たときにその場で取る（on-demand TLS）。取る前に EC-SUGAR に聞き（Caddyfile の on_demand_tls の ask）、
+#   管理画面・ある店・中央の名前でなければ取らない。管理画面もその場で取るのは、管理画面がショップのドメインの下（admin.example.jp と *.example.jp）だと、
+#   Caddy はワイルドカードの場所に覆われた名前を起動のときに取らず、握手で断ってしまうため（2026-10-29 に使い捨ての Ubuntu で起きた）
+# 店の独自ドメインは、入口の nginx と ask が受ける形を作るまで載せない（ADR 0031）
+(issue-single) {
+}
+(issue-multi) {
+	tls {
+		on_demand
+	}
+}
+
+{$EC_SUGAR_ADMIN_HOST} {
+	import issue-{$EC_SUGAR_SHOPS:single}
+	import edge
+}
+
+{$EC_SUGAR_SITE_SHOP} {
+	import issue-{$EC_SUGAR_SHOPS:single}
+	import edge
+}

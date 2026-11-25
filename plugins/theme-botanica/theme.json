@@ -1,0 +1,466 @@
+{
+    "theme_api": 2,
+    "screenshot": "screenshot.jpg",
+    "motion": "rich",
+    "style": {
+        "tokens": ["band-strong", "sage-band", "season-band", "photo-bg", "line-strong", "hero-panel", "hero-panel-soft", "promo-panel"],
+        "palettes": {
+            "sage": { "label": "セージ", "colors": { "canvas": "#ffffff", "band": "#f4f5f1", "band-strong": "#edf0e8", "sage-band": "#f0efed", "season-band": "#eef1e9", "photo-bg": "#f4f5f1", "line": "#e4e2de", "line-strong": "#b7b4af", "ink": "#222222", "ink-muted": "#55534f", "ink-soft": "#706d68", "accent": "#6d8266", "hero-panel": "#4b6245", "hero-panel-soft": "#dfe8d8", "promo-panel": "#edf0e8" } },
+            "terracotta": { "label": "テラコッタ", "colors": { "canvas": "#fffcf9", "band": "#f8f1ea", "band-strong": "#f2e7dc", "sage-band": "#f3ece6", "season-band": "#f4eadf", "photo-bg": "#f8f1ea", "line": "#e8ddd2", "line-strong": "#bcae9f", "ink": "#2b2420", "ink-muted": "#594c44", "ink-soft": "#75665c", "accent": "#a2543a", "hero-panel": "#8a4630", "hero-panel-soft": "#f6dccf", "promo-panel": "#f2e7dc" } },
+            "forest": { "label": "深い森", "colors": { "canvas": "#fbfcfa", "band": "#eef2ed", "band-strong": "#e4ebe2", "sage-band": "#e9eee7", "season-band": "#e6ece3", "photo-bg": "#eef2ed", "line": "#dde4da", "line-strong": "#a9b5a5", "ink": "#1b241c", "ink-muted": "#3e4b40", "ink-soft": "#5a675b", "accent": "#2f5d3a", "hero-panel": "#24472d", "hero-panel-soft": "#d3e4d4", "promo-panel": "#e4ebe2" } }
+        },
+        "accent": true,
+        "fonts": { "mincho": { "label": "見出しを明朝" }, "gothic": { "label": "すべてゴシック" } },
+        "radius": { "square": { "label": "四角" }, "soft": { "label": "少し丸く" } }
+    },
+    "sections": {
+        "announcement": {
+            "label": "お知らせバナー",
+            "wireframe": "announcement-bar",
+            "limit": 1,
+            "fields": {
+                "text": {
+                    "type": "text",
+                    "label": "お知らせ",
+                    "max": 100,
+                    "help": "ページのいちばん上に 1 行で表示します"
+                }
+            },
+            "example": {
+                "text": "ここにお知らせを書きます（例: 植物の配送は 3 日ほどかかります）"
+            }
+        },
+        "hero": {
+            "label": "ヒーロー",
+            "role": "hero",
+            "patterns": {
+                "panel": {
+                    "label": "写真と色の面",
+                    "wireframe": "hero-panel"
+                },
+                "split": {
+                    "label": "左右",
+                    "wireframe": "hero-split"
+                },
+                "grid": {
+                    "label": "グリッド",
+                    "wireframe": "hero-grid"
+                }
+            },
+            "fields": {
+                "kicker": {
+                    "type": "text",
+                    "label": "英字の一言",
+                    "max": 40,
+                    "help": "見出しの上に小さく表示します。空なら「A little more green.」"
+                },
+                "heading": {
+                    "type": "textarea",
+                    "label": "見出し",
+                    "max": 60,
+                    "help": "空なら店の名前"
+                },
+                "body": {
+                    "type": "textarea",
+                    "label": "本文",
+                    "max": 200
+                },
+                "image": {
+                    "type": "image",
+                    "label": "写真",
+                    "help": "「写真と色の面」では左の大きな枠に表示します"
+                },
+                "button_label": {
+                    "type": "text",
+                    "label": "ボタンの文字",
+                    "max": 20,
+                    "help": "空なら「植物を探す」"
+                },
+                "button_link": {
+                    "type": "link",
+                    "label": "ボタンの行き先",
+                    "help": "ショップ内のページ（/products など）か、https:// で始まる URL。空なら商品一覧"
+                }
+            },
+            "blocks": {
+                "photo": {
+                    "label": "写真",
+                    "fields": {
+                        "image": {
+                            "type": "image",
+                            "label": "写真",
+                            "help": "「格子」を選んだとき、ヒーローの写真の横に並びます"
+                        }
+                    }
+                }
+            },
+            "max_blocks": 3,
+            "example": {
+                "kicker": "A little more green.",
+                "heading": "暮らしに、\n小さな緑を。",
+                "body": "ここに説明を書きます。",
+                "button_label": "植物を探す",
+                "button_link": "/products"
+            }
+        },
+        "looks": {
+            "label": "右の特集",
+            "patterns": {
+                "stack": {
+                    "label": "ヒーローの右に縦に並べる",
+                    "wireframe": "features-stack"
+                },
+                "row": {
+                    "label": "横に 2 つ",
+                    "wireframe": "features-two"
+                }
+            },
+            "items": {
+                "label": "特集",
+                "max": 2,
+                "fields": {
+                    "title": {
+                        "type": "text",
+                        "label": "タイトル",
+                        "max": 24
+                    },
+                    "kicker": {
+                        "type": "text",
+                        "label": "英字の一言",
+                        "max": 30,
+                        "help": "空なら「Green selection」"
+                    },
+                    "image": {
+                        "type": "image",
+                        "label": "写真",
+                        "help": "写真を入れた特集だけを表示します"
+                    },
+                    "link": {
+                        "type": "link",
+                        "label": "行き先",
+                        "help": "空なら商品の一覧。ショップ内のページ（/c/plants など）か、https:// で始まる URL"
+                    }
+                }
+            },
+            "example": {
+                "items": [
+                    {
+                        "title": "季節の植物",
+                        "kicker": "Green selection",
+                        "link": "/products"
+                    },
+                    {
+                        "title": "はじめての鉢",
+                        "kicker": "For beginners",
+                        "link": "/products"
+                    }
+                ]
+            }
+        },
+        "categories": {
+            "label": "カテゴリ",
+            "role": "categories",
+            "patterns": {
+                "links": {
+                    "label": "文字",
+                    "wireframe": "categories-links"
+                },
+                "cards": {
+                    "label": "写真のカード",
+                    "wireframe": "categories-cards"
+                },
+                "circles": {
+                    "label": "丸",
+                    "wireframe": "categories-circles"
+                }
+            },
+            "fields": {
+                "list": {
+                    "type": "categories",
+                    "label": "並べるカテゴリ",
+                    "max": 8,
+                    "help": "選ばないときは、いちばん上の階層のカテゴリを並べます"
+                }
+            }
+        },
+        "new_arrivals": {
+            "label": "新着の商品",
+            "role": "products",
+            "patterns": {
+                "grid": {
+                    "label": "4 列",
+                    "wireframe": "products-grid"
+                },
+                "large": {
+                    "label": "2 列で大きく",
+                    "wireframe": "products-large"
+                },
+                "scroll": {
+                    "label": "横に流れる",
+                    "wireframe": "products-scroll"
+                }
+            },
+            "fields": {
+                "heading": {
+                    "type": "text",
+                    "label": "見出し",
+                    "max": 30,
+                    "help": "空なら「新しく届いたもの」"
+                }
+            },
+            "example": {
+                "heading": "新しく届いたもの"
+            }
+        },
+        "seasonal": {
+            "label": "季節の特集",
+            "patterns": {
+                "split": {
+                    "label": "写真が左",
+                    "wireframe": "feature-split"
+                },
+                "reverse": {
+                    "label": "写真が右",
+                    "wireframe": "feature-split-reverse"
+                },
+                "stack": {
+                    "label": "写真が上",
+                    "wireframe": "feature-stack"
+                }
+            },
+            "fields": {
+                "label": {
+                    "type": "text",
+                    "label": "小見出し",
+                    "max": 20
+                },
+                "heading": {
+                    "type": "textarea",
+                    "label": "見出し",
+                    "max": 40
+                },
+                "body": {
+                    "type": "textarea",
+                    "label": "本文",
+                    "max": 120
+                },
+                "highlight": {
+                    "type": "text",
+                    "label": "大きな一言",
+                    "max": 12,
+                    "help": "例: 20% OFF"
+                },
+                "note": {
+                    "type": "text",
+                    "label": "注意書き",
+                    "max": 40
+                },
+                "image": {
+                    "type": "image",
+                    "label": "写真",
+                    "help": "見出しと写真の両方を入れたときに表示します"
+                }
+            },
+            "example": {
+                "label": "GREEN LIVING",
+                "heading": "季節のおすすめ",
+                "body": "ここに説明を書きます。",
+                "highlight": "20% OFF",
+                "note": "見本の文です。期間などを書きます。"
+            }
+        },
+        "favorites": {
+            "label": "おすすめの商品",
+            "role": "products",
+            "patterns": {
+                "grid": {
+                    "label": "4 列",
+                    "wireframe": "products-grid"
+                },
+                "large": {
+                    "label": "2 列で大きく",
+                    "wireframe": "products-large"
+                },
+                "scroll": {
+                    "label": "横に流れる",
+                    "wireframe": "products-scroll"
+                }
+            },
+            "fields": {
+                "products": {
+                    "type": "products",
+                    "label": "並べる商品",
+                    "max": 8
+                }
+            },
+            "example": {
+                "products": {
+                    "source": "new"
+                }
+            }
+        },
+        "promises": {
+            "label": "安心の一行",
+            "role": "promises",
+            "patterns": {
+                "row": {
+                    "label": "1 行",
+                    "wireframe": "promises-row"
+                },
+                "dark": {
+                    "label": "濃い背景",
+                    "wireframe": "promises-dark"
+                }
+            },
+            "items": {
+                "label": "お約束",
+                "max": 4,
+                "fields": {
+                    "icon": {
+                        "type": "choice",
+                        "label": "アイコン",
+                        "options": {
+                            "shipping": "送料・配送",
+                            "returns": "返品・交換",
+                            "secure": "お支払い",
+                            "support": "お問い合わせ"
+                        }
+                    },
+                    "title": {
+                        "type": "text",
+                        "label": "見出し",
+                        "max": 24
+                    },
+                    "body": {
+                        "type": "text",
+                        "label": "説明",
+                        "max": 60
+                    }
+                }
+            },
+            "example": {
+                "items": [
+                    {
+                        "icon": "shipping",
+                        "title": "植物を大切にお届け",
+                        "body": "ここに送料やお届けの目安を書きます。"
+                    },
+                    {
+                        "icon": "returns",
+                        "title": "返品・交換",
+                        "body": "ここに返品の条件を書きます。"
+                    },
+                    {
+                        "icon": "support",
+                        "title": "育て方のご相談",
+                        "body": "ここにお問い合わせの案内を書きます。"
+                    }
+                ]
+            }
+        }
+    },
+    "pages": {
+        "home": {
+            "types": [
+                "announcement",
+                "hero",
+                "looks",
+                "categories",
+                "new_arrivals",
+                "seasonal",
+                "favorites",
+                "promises",
+                "basic_text",
+                "basic_image_text",
+                "basic_image",
+                "basic_button",
+                "basic_products",
+                "basic_testimonials",
+                "basic_faq",
+                "basic_features",
+                "basic_cta",
+                "basic_gallery",
+                "basic_product",
+                "basic_entries",
+                "basic_story",
+                "basic_numbers",
+                "basic_logos",
+                "basic_steps",
+                "basic_table",
+                "basic_pricing",
+                "basic_spacer",
+                "basic_html",
+                "basic_richtext"
+            ],
+            "default": [
+                {
+                    "type": "announcement"
+                },
+                {
+                    "type": "hero",
+                    "pattern": "panel"
+                },
+                {
+                    "type": "looks",
+                    "pattern": "stack"
+                },
+                {
+                    "type": "categories",
+                    "pattern": "links"
+                },
+                {
+                    "type": "new_arrivals",
+                    "pattern": "grid"
+                },
+                {
+                    "type": "seasonal",
+                    "pattern": "split"
+                },
+                {
+                    "type": "favorites",
+                    "pattern": "grid"
+                },
+                {
+                    "type": "promises",
+                    "pattern": "row"
+                }
+            ]
+        },
+        "page": {
+            "types": [
+                "hero",
+                "looks",
+                "categories",
+                "seasonal",
+                "favorites",
+                "promises",
+                "basic_text",
+                "basic_image_text",
+                "basic_image",
+                "basic_button",
+                "basic_products",
+                "basic_testimonials",
+                "basic_faq",
+                "basic_features",
+                "basic_cta",
+                "basic_gallery",
+                "basic_product",
+                "basic_entries",
+                "basic_story",
+                "basic_numbers",
+                "basic_logos",
+                "basic_steps",
+                "basic_table",
+                "basic_pricing",
+                "basic_spacer",
+                "basic_html",
+                "basic_richtext"
+            ],
+            "default": [
+                {
+                    "type": "basic_text"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,86 @@
+{
+    "name": "ec-sugar/plugin-google-map",
+    "description": "EC-SUGAR の App: 地図（Google マップ）のセクション。住所か場所の名前を入れると、ページに地図を置く（キーの要らない埋め込み。ADR 0040）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginGoogleMap\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginGoogleMap\\GoogleMapServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "google-map",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "page",
+            "disclosure": [
+                {
+                    "company": "Google LLC（Google マップ）",
+                    "data": "地図のセクションのあるページを表示したとき: IP アドレス、端末とブラウザの情報（Google の Cookie があればそれも）、ショップのアドレス（ドメインまで）、地図に入れた場所の文字と地図の操作",
+                    "purpose": "ページの中に、お店や会場の場所の地図を表示するため（Google マップ）",
+                    "policy": "https://policies.google.com/privacy?hl=ja"
+                }
+            ],
+            "sections": {
+                "app_google_map": {
+                    "label": "地図",
+                    "patterns": {
+                        "wide": {
+                            "label": "横いっぱい",
+                            "wireframe": "map-wide"
+                        },
+                        "split": {
+                            "label": "地図と案内",
+                            "wireframe": "map-split"
+                        }
+                    },
+                    "fields": {
+                        "place": {
+                            "type": "text",
+                            "label": "場所",
+                            "max": 200,
+                            "help": "住所か場所の名前（例: 東京都千代田区丸の内1-9-1、東京駅）。地図の URL ではなく文字で入れてください"
+                        },
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "body": {
+                            "type": "textarea",
+                            "label": "案内の文",
+                            "max": 600,
+                            "help": "住所・行き方・営業時間など。「地図と案内」のパターンで地図の横に出ます"
+                        }
+                    },
+                    "example": {
+                        "heading": "アクセス",
+                        "body": "ここに住所や行き方、営業時間を書いてください。"
+                    },
+                    "embed": {
+                        "frame-src": ["https://www.google.com/maps"],
+                        "links": ["https://www.google.com/maps/search/"],
+                        "sandbox": ["allow-scripts", "allow-same-origin", "allow-popups", "allow-popups-to-escape-sandbox"],
+                        "allow": ["fullscreen"]
+                    }
+                }
+            }
+        }
+    }
+}

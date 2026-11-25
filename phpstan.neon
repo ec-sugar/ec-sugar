@@ -1,0 +1,23 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+    # 追跡しているすべての PHP を見る（CI・make stan・git hooks で同じ範囲。Blade と bootstrap/cache は除く）
+    paths:
+        - app
+        - bootstrap/app.php
+        - bootstrap/providers.php
+        - plugins
+        - config
+        - database
+        - routes
+        - tests
+        - public/index.php
+        - docker/egress
+    tmpDir: .phpstan.cache
+    # タスクの台帳の形を見張るテスト（tests/Unit/BacklogFormatTest.php）が読む。進み具合の画面の道具で、
+    # 解析の対象（paths）には入れないが、クラスは知っておいてもらう
+    scanFiles:
+    excludePaths:
+        - plugins/*/vendor/*

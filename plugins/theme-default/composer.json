@@ -1,0 +1,28 @@
+{
+    "name": "ec-sugar/theme-default",
+    "description": "EC-SUGAR の既定のテーマ（角砂糖）。白と灰色の地に、角砂糖の積み木の絵",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\ThemeDefault\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\ThemeDefault\\ThemeServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "theme",
+            "name": "default",
+            "theme_api": 2,
+            "core": "^1.0"
+        }
+    }
+}

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="1200" fill="#ecebe7"/>
+  <ellipse cx="600" cy="1004" rx="330" ry="30" fill="#000" opacity=".08"/>
+  <g transform="translate(0 0) scale(1.0)">
+    <path d="M500 480 V350 a100 100 0 0 1 200 0 V480" fill="none" stroke="#cfc2a4" stroke-width="30" stroke-linecap="round"/>
+    <path d="M360 470 H840 L872 1000 H328 Z" fill="#e6dcc6"/>
+    <path d="M770 470 H840 L872 1000 H800 Z" fill="#000" opacity=".06"/>
+    <path d="M360 470 H840 L844 540 H356 Z" fill="#000" opacity=".07"/>
+    <path d="M360 556 H840" stroke="#bfb08e" stroke-width="4" stroke-dasharray="14 10"/>
+    <path d="M470 490 V370 a130 130 0 0 1 260 0 V490" fill="none" stroke="#cfc2a4" stroke-width="34" stroke-linecap="round"/>
+    <rect x="448" y="480" width="44" height="70" rx="6" fill="#cfc2a4"/>
+    <rect x="708" y="480" width="44" height="70" rx="6" fill="#cfc2a4"/>
+  </g>
+  <text x="1160" y="1160" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="26" letter-spacing="6" fill="#000" opacity=".22">SAMPLE</text>
+</svg>

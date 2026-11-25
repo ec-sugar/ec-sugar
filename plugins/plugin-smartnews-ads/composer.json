@@ -1,0 +1,65 @@
+{
+    "name": "ec-sugar/plugin-smartnews-ads",
+    "description": "EC-SUGAR の App: SmartNews 広告のピクセル（SmartNews 広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginSmartnewsAds\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginSmartnewsAds\\SmartnewsAdsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "smartnews-ads",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "pixel_id": {
+                    "type": "text",
+                    "label": "ピクセル ID",
+                    "help": "SmartNews Ads の広告管理画面の「イベント」タブのピクセルの識別子で、ベースコードの SmartnewsAds.p( のすぐ後ろに入っている英小文字と数字です（例: ab124kadkkall3a134555）。",
+                    "pattern": "[a-z0-9]{16,32}",
+                    "max": 32,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "スマートニュース株式会社",
+                    "data": "見たページの URL、参照元、時刻、ブラウザと端末の情報（言語・時間帯・画面の大きさなど）、Cookie とローカルストレージの識別子、SmartNews のアプリの中で開いたときはアプリの識別子、購入したときの金額・通貨・品の ID と数",
+                    "purpose": "SmartNews の広告の効果の測定と、広告の配信のため",
+                    "policy": "https://www.smartnews.com/privacy"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "smartnews-ads.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://cdn.smartnews-ads.com"],
+                    "img-src": ["https://i.smartnews-ads.com", "https://i6.smartnews-ads.com"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

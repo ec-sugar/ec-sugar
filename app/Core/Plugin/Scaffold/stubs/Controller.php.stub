@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+namespace EcSugar\Plugin__STUDLY__\Http;
+
+use App\Storefront\View\StorefrontView;
+use EcSugar\Plugin__STUDLY__\__STUDLY__Status;
+use EcSugar\Plugin__STUDLY__\Models\__STUDLY__Item;
+use Illuminate\Http\Response;
+
+/**
+ * ショップの /p/__NAME__（make:plugin のひな形から）。受付中の記録の名前を新しい順に並べる。
+ * ここに来るのは、この店が App を使っている時だけ（核の plugin:__NAME__ の印。使っていない店では 404）。
+ * 描くのは App の Blade を、店のテーマの外枠の中で（StorefrontView::renderApp。文は Blade の {{ }} でエスケープする）。
+ * 書き込む経路を足すときは、__STUDLY__Items を通し、actor は storefront にする
+ */
+final class __STUDLY__Controller
+{
+    /** 1 ページに出す数 */
+    private const int LIMIT = 50;
+
+    public function __construct(private readonly StorefrontView $view) {}
+
+    public function index(): Response
+    {
+        $items = __STUDLY__Item::query()
+            ->where('status', __STUDLY__Status::Open->value)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit(self::LIMIT)
+            ->get(['id', 'title']);
+
+        return $this->view->renderApp('__NAME__::index', ['items' => $items]);
+    }
+}

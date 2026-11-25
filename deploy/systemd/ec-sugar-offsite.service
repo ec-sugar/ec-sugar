@@ -1,0 +1,17 @@
+# バックアップと記録の連鎖の先頭を、サーバーの外の S3 互換の置き場へ送る（ADR 0110）。
+# 置き場を設定していない（/srv/ec-sugar/secrets/offsite/credentials が無い）サーバーでは、条件（ConditionPathExists）で動かさない。
+# 毎朝のバックアップ（ec-sugar-backup.service。運用の錠の中）は送る分の控えを作るだけで、送るのはこちら（運用の錠は取らない。
+# 大きなバックアップを細い回線で送っても、更新・バックアップ・中の照らしを止めない）。前の回が送っている間は、次の回は黙って見送る
+[Unit]
+Description=EC-SUGAR offsite backup (send to S3-compatible storage)
+After=network-online.target ec-sugar.service
+Wants=network-online.target
+ConditionPathExists=/srv/ec-sugar/secrets/offsite/credentials
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar offsite run
+# 待ち時間は決めない（切れ端がいくつもある大きな写真を、細い回線で送り終えられるように）。止まった送信は curl が切る
+# （1 KB/秒を 2 分下回る・1 回の PUT は 6 時間まで）。送っている間は、次の回は自分の錠で見送る
+TimeoutStartSec=infinity
+Nice=10

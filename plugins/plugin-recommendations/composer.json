@@ -1,0 +1,135 @@
+{
+    "name": "ec-sugar/plugin-recommendations",
+    "description": "EC-SUGAR 公式の App: おすすめのセクション（関連商品・最近見た商品・売れ筋ランキングを、ページのセクションとして置く）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginRecommendations\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginRecommendations\\RecommendationsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "recommendations",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "page",
+            "sections": {
+                "app_recommendations_related": {
+                    "label": "関連商品",
+                    "patterns": {
+                        "grid": {
+                            "label": "グリッド",
+                            "wireframe": "products-grid"
+                        },
+                        "scroll": {
+                            "label": "横に流れる",
+                            "wireframe": "products-scroll"
+                        }
+                    },
+                    "fields": {
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "count": {
+                            "type": "choice",
+                            "label": "並べる数",
+                            "options": {
+                                "four": "4 個",
+                                "eight": "8 個",
+                                "twelve": "12 個"
+                            },
+                            "help": "お客さんが最後に見た商品と同じカテゴリの商品を並べます。足りない分と、まだ商品を見ていないお客さんには新着を並べます"
+                        }
+                    },
+                    "example": {
+                        "heading": "こちらもおすすめ"
+                    }
+                },
+                "app_recommendations_recent": {
+                    "label": "最近見た商品",
+                    "patterns": {
+                        "grid": {
+                            "label": "グリッド",
+                            "wireframe": "products-grid"
+                        },
+                        "scroll": {
+                            "label": "横に流れる",
+                            "wireframe": "products-scroll"
+                        }
+                    },
+                    "fields": {
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "count": {
+                            "type": "choice",
+                            "label": "並べる数",
+                            "options": {
+                                "four": "4 個",
+                                "eight": "8 個",
+                                "twelve": "12 個"
+                            },
+                            "help": "お客さんがこのブラウザで最近見た商品を、新しい順に並べます（お客さんのブラウザにだけ覚え、お店には残りません）。まだ見ていないお客さんには何も出ません"
+                        }
+                    },
+                    "example": {
+                        "heading": "最近見た商品"
+                    }
+                },
+                "app_recommendations_ranking": {
+                    "label": "売れ筋ランキング",
+                    "patterns": {
+                        "grid": {
+                            "label": "グリッド",
+                            "wireframe": "products-grid"
+                        },
+                        "scroll": {
+                            "label": "横に流れる",
+                            "wireframe": "products-scroll"
+                        }
+                    },
+                    "fields": {
+                        "heading": {
+                            "type": "text",
+                            "label": "見出し",
+                            "max": 80
+                        },
+                        "count": {
+                            "type": "choice",
+                            "label": "並べる数",
+                            "options": {
+                                "four": "4 個",
+                                "eight": "8 個",
+                                "twelve": "12 個"
+                            },
+                            "help": "直近 30 日にお支払いのあった注文で、売れた数の多い順に並べます（1 時間ごとに数え直します）"
+                        }
+                    },
+                    "example": {
+                        "heading": "売れ筋ランキング"
+                    }
+                }
+            }
+        }
+    }
+}

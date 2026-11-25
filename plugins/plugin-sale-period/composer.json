@@ -1,0 +1,34 @@
+{
+    "name": "ec-sugar/plugin-sale-period",
+    "description": "EC-SUGAR 公式の App: 公開の予約と販売期間（商品ごとに公開する日時と販売を終える日時を決め、公開する日時までは一覧に表示せず、販売を終える日時の後は売り切れにする）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginSalePeriod\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginSalePeriod\\SalePeriodServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "sale-period",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "selling"
+        }
+    }
+}

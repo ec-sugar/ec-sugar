@@ -1,0 +1,28 @@
+{
+    "name": "ec-sugar/theme-fashion",
+    "description": "EC-SUGAR 公式テーマ 2（fashion）。白を基調に、大きな写真と中央ロゴで見せるファッション向けテーマ",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\ThemeFashion\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\ThemeFashion\\ThemeServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "theme",
+            "name": "fashion",
+            "theme_api": 2,
+            "core": "^1.0"
+        }
+    }
+}

@@ -1,0 +1,66 @@
+{
+    "name": "ec-sugar/plugin-pinterest-tag",
+    "description": "EC-SUGAR の App: Pinterest タグ（Pinterest 広告の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginPinterestTag\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginPinterestTag\\PinterestTagServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "pinterest-tag",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "tag_id": {
+                    "type": "text",
+                    "label": "タグ ID",
+                    "help": "Pinterest の広告マネージャの「コンバージョン」で、タグの名前の横に出る数字です（例: 2612345678901）。",
+                    "pattern": "[0-9]{9,16}",
+                    "max": 16,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "Pinterest, Inc.",
+                    "data": "見たページの URL、参照元、ブラウザと端末の情報、Cookie の識別子、購入したときの注文の番号・金額・通貨・品の ID と数",
+                    "purpose": "Pinterest の広告の効果の測定と、広告の配信のため",
+                    "policy": "https://policy.pinterest.com/ja/privacy-policy"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "pinterest-tag.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://s.pinimg.com"],
+                    "connect-src": ["https://ct.pinterest.com"],
+                    "img-src": ["https://ct.pinterest.com"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}

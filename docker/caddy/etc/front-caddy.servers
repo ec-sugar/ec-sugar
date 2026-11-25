@@ -1,0 +1,5 @@
+# 入口の形 caddy（既定。EC-SUGAR の Caddy が 80・443 番を受ける）: 前の代理を信じない（trusted_proxies を書かない）。
+# 外から来た X-Forwarded-For・CF-Connecting-IP などは使わず、Caddy が見た住所を接続元にする（Caddyfile の servers が読み込む）
+#
+# TLS の名前（SNI）と Host が違う要求は断る（421。証明書を取らせた名前で入り、Host だけ別の名前にすり替えさせない）
+strict_sni_host on

@@ -1,0 +1,28 @@
+{
+    "name": "ec-sugar/theme-kinari",
+    "description": "EC-SUGAR 公式テーマ 1（kinari）（アパレル向け。生成りの地とセージ、細いセリフの見出し）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\ThemeKinari\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\ThemeKinari\\ThemeServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "theme",
+            "name": "kinari",
+            "theme_api": 2,
+            "core": "^1.0"
+        }
+    }
+}

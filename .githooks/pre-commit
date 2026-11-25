@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# commit 前: 秘密情報の混入検知 → 禁止ファイル → ステージ済み PHP のスタイル（速い検査だけ）
+# 静的解析（phpstan）は push 前の hook に任せる（commit ごとに全体を解析しても、
+# その push に含まれる全コミットを push 前の phpstan がまとめて見るので情報が増えない）
+# 有効化: make hooks（git config core.hooksPath .githooks）
+# macOS 標準の bash 3.2 でも動く書き方にする（mapfile や grep の先読みは使わない）
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+
+# 1. 秘密情報（gitleaks があれば必ず通す。無ければ警告のみ。CI では必ず走る）
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --no-banner --redact . || { echo "✗ 秘密情報らしき文字列がステージされています"; exit 1; }
+else
+  echo "  (gitleaks 未インストール。brew install gitleaks を推奨)"
+fi
+
+# 2. 禁止ファイル（.gitignore を迂回して add された場合の保険）
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+bad="$(printf '%s\n' "$staged" | grep -E '(^|/)\.env(\..*)?$' | grep -v -E '\.env\.example$' || true)"
+bad="$bad$(printf '%s\n' "$staged" | grep -E '(^|/)key\.md$|\.(pem|key|p8|sql)$' || true)"
+if [ -n "$bad" ]; then
+  echo "✗ コミットしてはいけないファイルが含まれています:"; printf '%s\n' "$bad"; exit 1
+fi
+
+# 3. PHP のスタイル（ステージ済みファイルだけ。数秒）
+php="$(printf '%s\n' "$staged" | grep -E '\.php$' || true)"
+if [ -n "$php" ]; then
+  # shellcheck disable=SC2086
+  vendor/bin/pint --test $php || { echo "✗ pint: vendor/bin/pint で整形してから再度 add してください"; exit 1; }
+fi

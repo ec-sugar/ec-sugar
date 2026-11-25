@@ -1,0 +1,1384 @@
+#!/usr/bin/env bash
+# EC-SUGAR の外の見張り（ADR 0105 の 3）。EC-SUGAR を入れたサーバーとは**別の機械**（安い VPS・手元の Mac・家の別の PC）に置き、
+# cron・systemd の timer・launchd で数分ごとに流す。使う道具は bash・curl・openssl 3・python3（標準のライブラリだけ）。
+#
+#   ec-sugar-sentinel check <設定>              様子（署名した integrity.json）と店頭の指紋を確かめ、困りごとと戻りを知らせる
+#   ec-sugar-sentinel accept <設定> [--force]   今の店頭の指紋を基準として取る（入れた後・更新の後・App や埋め込みを足した後に。違いを並べて見せる）。
+#                                               サーバーが困りごとを出している・busy・様子が古い・隠れた要素・UTF-8 でないページの時は断る（--force で越える）
+#   ec-sugar-sentinel test-notify <設定>        テスト通知を送る
+#
+# 設定のファイル（key=value。# で始まる行と空の行は飛ばす。シェルとしては読まない）:
+#   STATUS_URL=https://shop.example.jp/.well-known/ec-sugar/integrity.json   様子の URL（署名は同じ URL に .sig を足した所）
+#   PUBLIC_KEY=/etc/ec-sugar-sentinel/integrity.pub     公開鍵の PEM（本番で `sudo ec-sugar integrity key` が出すもの）
+#   SENTINEL_TOKEN_FILE=/etc/ec-sugar-sentinel/token    見張りの合い言葉（本番で `sudo ec-sugar integrity token` が出す 32 桁の 16 進）を書いた 0600 のファイル。
+#                                                       様子の 2 つの取得にだけ見出し X-EC-Sugar-Sentinel で付ける（任意。無ければ中の「見張りが来ていない」が出ないだけ）
+#   PAGE=https://shop.example.jp/                       指紋を取るページ（何行でも。PAGE と LINKS_PAGE で合わせて 20 まで）。トップ・商品など
+#   LINKS_PAGE=https://shop.example.jp/cart             指紋を取り、外の出どころへのリンク（<a href>）の出どころも指紋に入れるページ（カートなど）
+#   WEBHOOK_FILE=/etc/ec-sugar-sentinel/webhook         Slack 形式の Webhook の URL を 1 行で書いたファイル（本人だけが読める 0600）
+#   NOTIFY_COMMAND=mail -s "$EC_SENTINEL_SUBJECT" you@example.jp   本文を標準入力で渡すコマンド（sh -c で流す）。WEBHOOK_FILE と両方でもよい
+#   STATE_DIR=/var/lib/ec-sugar-sentinel                状態と基準を置くディレクトリ（無ければ 0700 で作る）
+#   NAME=本番のショップ                                 知らせに出す名前（既定は STATUS_URL のホスト）
+#   TIME_LIMIT=120                                      1 回の確かめの時間の上限（秒。越えたら困りごと）
+#   USER_AGENT=…                                        取る時の User-Agent（既定はふつうのブラウザの形）
+#   ALLOW_HTTP=yes                                      http を許す（テストだけ。ふだんは書かない＝https だけ）
+#
+# 知らせの決まり（同じ困りごとは続いている間 1 回だけ、戻ったら「戻りました」を 1 回）。様子の結果は、ページを見る前に送る:
+#   すぐ知らせる: 署名が通らない・format が 1 でない（欠けた項目も）・server が基準と違う・ok が偽（problems の種類を並べる）・
+#                 店頭の指紋が基準と違う・基準が無い・注釈などに隠れた要素がある・UTF-8 でない・1 回の確かめが時間の上限を越えた
+#   2 回続いたら: 様子を取れない・checked_at が 5 分より古い・2 分より先・店頭のページを開けない
+#   30 分続いたら: busy（更新などの途中）
+#   15 分続いたら: 前の回が終わらない（錠が取れない）
+#   1 回だけのお知らせ: generation が上がった（あるべき姿が変わった）・下がった
+#
+# 守り: 設定・Webhook の URL・合い言葉・コマンドを記録と知らせに出さない（URL と合い言葉は curl へ設定として標準入力で渡し、引数に載せない）。
+# 取る時は https だけ・転送を追わない・時間と大きさに上限・圧縮を頼まない・~/.curlrc を読まない。HTML や JSON の中身はシェルに渡さない
+# （解くのは python3 の中で、外のコマンドは引数の並びで呼ぶ）。知らせの文は制御文字を除いて長さを切る。
+# 状態は STATE_DIR の中だけに書き、同時に 2 つ流れないよう錠を取る。
+#
+# 終わりの値: 0 困りごと無し・1 困りごとがある（知らせを送れなかった時も）・2 使い方か設定の誤り
+set -u
+
+usage() {
+    cat << 'USAGE'
+使い方: ec-sugar-sentinel check <設定>              状態とショップの指紋を確認して通知する
+        ec-sugar-sentinel accept <設定> [--force]   今のショップの指紋を基準として取る（更新の後に）
+        ec-sugar-sentinel test-notify <設定>        テスト通知を送る
+設定の書き方はこのファイルの頭と docs/install.md の「外部監視を置く」
+USAGE
+}
+
+# openssl 3 以上を探す（OPENSSL の環境変数 → PATH → Homebrew の openssl@3）。macOS の LibreSSL は Ed25519 の -rawin が無いので断る
+find_openssl() {
+    local c v
+    for c in "${OPENSSL:-}" "$(command -v openssl 2> /dev/null)" /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl; do
+        [ -n "$c" ] && [ -x "$c" ] || continue
+        v="$("$c" version 2> /dev/null)"
+        case "$v" in
+            "OpenSSL "[3-9].*) printf '%s\n' "$c"; return 0 ;;
+        esac
+        if [ -n "${OPENSSL:-}" ] && [ "$c" = "$OPENSSL" ]; then
+            echo "OPENSSL に指定したものが OpenSSL 3 以上ではありません（${v%% (*}）" >&2
+            return 1
+        fi
+    done
+    echo "OpenSSL 3 以上が見つかりません（LibreSSL は使えません）。macOS なら brew install openssl@3 か、OPENSSL=<パス> で指定する" >&2
+    return 1
+}
+
+cmd="${1:-}"
+conf="${2:-}"
+force="${3:-}"
+case "$cmd" in
+    check | accept | test-notify) ;;
+    -h | --help | help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+if [ -z "$conf" ] || [ $# -gt 3 ] || { [ $# -eq 3 ] && { [ "$cmd" != accept ] || [ "$force" != --force ]; }; }; then
+    usage >&2
+    exit 2
+fi
+command -v python3 > /dev/null 2>&1 || { echo "python3 が見つかりません" >&2; exit 2; }
+command -v curl > /dev/null 2>&1 || { echo "curl が見つかりません" >&2; exit 2; }
+ossl="$(find_openssl)" || exit 2
+EC_SENTINEL_OPENSSL="$ossl"
+EC_SENTINEL_CURL="$(command -v curl)"
+export EC_SENTINEL_OPENSSL EC_SENTINEL_CURL
+
+# 本体は python3 で（-I: PYTHON* の環境変数・利用者の site・今のディレクトリを読まない）。中身は下の heredoc（展開しない）
+exec python3 -I - "$cmd" "$conf" "$force" << 'PYTHON'
+import base64
+import calendar
+import fcntl
+import hashlib
+import html
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from collections import Counter
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
+
+STATUS_MAX = 64 * 1024          # 状態の大きさの上限
+SIG_MAX = 4 * 1024              # 署名の大きさの上限
+PAGE_MAX = 2 * 1024 * 1024      # 店頭のページの大きさの上限
+SCRIPT_MAX = 4 * 1024 * 1024    # 同じ出どころのスクリプトの大きさの上限
+MAX_PAGES = 20                  # 設定に書けるページの数（PAGE と LINKS_PAGE を合わせて）
+MAX_SCRIPTS = 40                # 1 ページで中身を取りに行くスクリプトの数
+MAX_PROBLEMS = 30               # 通知に並べる問題の数
+MAX_LINK_ORIGINS = 50           # 1 ページで指紋に入れる外のリンクの出どころの数
+STALE_SECONDS = 5 * 60          # checked_at がこれより古いと問題
+FUTURE_SECONDS = 2 * 60         # checked_at がこれより先だと問題
+BUSY_SECONDS = 30 * 60          # busy がこれより続くと問題
+LOCK_SECONDS = 15 * 60          # ロックが取れない（前の回が終わらない）のがこれより続くと問題
+FAILS_BEFORE_ALERT = 2          # 取れない・古いは、この回数続いたら通知する
+FETCH_SECONDS = 30              # 1 つの取得の時間の上限
+DEFAULT_TIME_LIMIT = 120        # 1 回の確認全体の時間の上限（設定 TIME_LIMIT で変える）
+SIG_RETRY_WAIT = 1              # 署名が通らない時、状態と署名を取り直すまでの秒（書き換わる間に 2 つを別々に取った時の取り違えを問題にしない）
+# 既定の User-Agent はふつうのブラウザの形（見張りだと名乗ると、入られたサーバーが見張りにだけきれいな答えを返しやすい）
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+TOKEN_HEADER = "X-EC-Sugar-Sentinel"
+CONFIG_KEYS = {"STATUS_URL", "PUBLIC_KEY", "PAGE", "LINKS_PAGE", "WEBHOOK_FILE", "NOTIFY_COMMAND", "STATE_DIR", "NAME", "ALLOW_HTTP",
+               "TIME_LIMIT", "USER_AGENT", "SENTINEL_TOKEN_FILE"}
+# Ed25519 の公開鍵の DER（SubjectPublicKeyInfo）の頭
+ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
+CHECKED_AT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z\Z")
+SERVER_ID = re.compile(r"\A[A-Za-z0-9._:-]{1,128}\Z")
+TOKEN = re.compile(r"\A[0-9a-fA-F]{32}\Z")
+PROBLEM_NAME = re.compile(r"[^A-Za-z0-9:_./-]")
+# 指紋に入れる時に {id} にそろえる、URL の道筋の区切り（ULID・UUID・数字・長い英数字の合い札）
+ID_SEGMENT = re.compile(r"\A(?:[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\d+|[A-Za-z0-9_-]{32,})\Z")
+# 中身を指紋に入れない（数だけ数える）インラインのスクリプトの type。JSON-LD は商品の名前・値段・在庫の有無など店の人が直す値なので、中身を入れると誤報になる。
+# 実行されないデータの塊で、CSP の script-src にも掛からない
+DATA_ONLY_TYPES = {"application/ld+json"}
+# 指紋に入れる答えの見出し（飛ばす・読み込ませる・解き方を変える）
+FINGERPRINT_HEADERS = ("refresh", "link", "content-type")
+KIND_LABELS = {
+    "status": "応答のステータス",
+    "redirect": "転送先",
+    "header": "応答のヘッダー",
+    "csp": "CSP",
+    "csp-report-only": "CSP（報告だけ）",
+    "script": "スクリプト",
+    "inline": "インラインのスクリプト",
+    "form": "フォームの送信先",
+    "iframe": "埋め込み（iframe）",
+    "object": "埋め込み（object・embed）",
+    "meta": "meta http-equiv",
+    "base": "base",
+    "handler": "インラインのイベント（on…）",
+    "javascript-url": "javascript: の URL",
+    "link": "外へのリンク先（オリジン）",
+}
+WS = " \t\n\r\f"
+TAG_START = re.compile(r"<([A-Za-z][^\s/>\x00]*)")
+ATTR_NAME = re.compile(r"[^\s/>][^\s/>=]*")
+UNQUOTED = re.compile(r"[^\s>]*")
+
+
+class ConfigError(Exception):
+    pass
+
+
+class FetchError(Exception):
+    pass
+
+
+class TimeLimit(Exception):
+    pass
+
+
+def out(msg):
+    print(msg, flush=True)
+
+
+def err(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def clean(text, limit=300):
+    """通知と記録に出す文を 1 行にし、制御文字を除いて長さを切る（HTML や JSON から来た値をそのまま出さない）"""
+    text = re.sub(r"[\x00-\x1f\x7f  ‪-‮⁦-⁩]", " ", str(text))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def now():
+    # テストだけ: EC_SENTINEL_NOW（UNIX 秒）で今の時刻を決める（busy の 30 分などを待たずに確かめる）
+    fixed = os.environ.get("EC_SENTINEL_NOW", "")
+    return int(fixed) if fixed.isdigit() else int(time.time())
+
+
+# ---------- 設定 ----------
+
+def check_url(value, allow_http, where):
+    if not value or re.search(r"[\s\x00-\x1f\x7f\"'\\<>`]", value):
+        raise ConfigError(where + " の URL の形が違います")
+    parts = urlsplit(value)
+    schemes = ("https", "http") if allow_http else ("https",)
+    if parts.scheme not in schemes:
+        raise ConfigError(where + " は https の URL にします（http はテストの ALLOW_HTTP=yes の時だけ）")
+    if not parts.hostname or "@" in parts.netloc:
+        raise ConfigError(where + " の URL にホストが無いか、名前とパスワードが入っています")
+    if parts.fragment:
+        raise ConfigError(where + " の URL に # は書けません")
+    return value
+
+
+def load_config(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        raise ConfigError("設定のファイルを読めません")
+    base = os.path.dirname(os.path.abspath(path))
+    cfg = {"PAGE": [], "LINKS_PAGE": []}
+    for no, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ConfigError("設定の {} 行目が key=value の形ではありません".format(no))
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" and key not in ("NOTIFY_COMMAND", "USER_AGENT"):
+            value = value[1:-1]
+        if key not in CONFIG_KEYS:
+            raise ConfigError("設定の {} 行目: 知らない名前 {}".format(no, clean(key, 40)))
+        if key in ("PAGE", "LINKS_PAGE"):
+            cfg[key].append(value)
+        elif key in cfg:
+            raise ConfigError("設定の {} 行目: {} が 2 回あります".format(no, key))
+        else:
+            cfg[key] = value
+
+    allow_http = cfg.get("ALLOW_HTTP", "") == "yes"
+    if cfg.get("ALLOW_HTTP", "") not in ("", "yes", "no"):
+        raise ConfigError("ALLOW_HTTP は yes か no です")
+    for key in ("STATUS_URL", "PUBLIC_KEY", "STATE_DIR"):
+        if not cfg.get(key):
+            raise ConfigError(key + " がありません")
+    status_url = check_url(cfg["STATUS_URL"], allow_http, "STATUS_URL")
+    if urlsplit(status_url).query:
+        raise ConfigError("STATUS_URL に ? は書けません")
+    pages = []
+    links = set()
+    for key in ("PAGE", "LINKS_PAGE"):
+        for i, page in enumerate(cfg[key], 1):
+            check_url(page, allow_http, "{}（{} 行目）".format(key, i))
+            if page in pages and (key == "PAGE" or page in links):
+                raise ConfigError("{} に同じ URL が 2 回あります".format(key))
+            if page not in pages:
+                pages.append(page)
+            if key == "LINKS_PAGE":
+                links.add(page)
+    if len(pages) > MAX_PAGES:
+        raise ConfigError("PAGE と LINKS_PAGE は合わせて {} までです".format(MAX_PAGES))
+    if not cfg.get("WEBHOOK_FILE") and not cfg.get("NOTIFY_COMMAND"):
+        raise ConfigError("通知先（WEBHOOK_FILE か NOTIFY_COMMAND）がありません")
+    limit = cfg.get("TIME_LIMIT", str(DEFAULT_TIME_LIMIT))
+    if not limit.isdigit() or not 1 <= int(limit) <= 3600:
+        raise ConfigError("TIME_LIMIT は 1〜3600 の秒です")
+    agent = cfg.get("USER_AGENT", DEFAULT_USER_AGENT)
+    if not re.match(r"\A[\x20-\x7e]{1,300}\Z", agent):
+        raise ConfigError("USER_AGENT は 300 字までの英数字と記号です")
+
+    def resolve(p):
+        return p if os.path.isabs(p) else os.path.join(base, p)
+
+    name = cfg.get("NAME") or urlsplit(status_url).hostname
+    return {
+        "status_url": status_url,
+        "public_key": resolve(cfg["PUBLIC_KEY"]),
+        "pages": pages,
+        "links_pages": links,
+        "webhook_file": resolve(cfg["WEBHOOK_FILE"]) if cfg.get("WEBHOOK_FILE") else None,
+        "token_file": resolve(cfg["SENTINEL_TOKEN_FILE"]) if cfg.get("SENTINEL_TOKEN_FILE") else None,
+        "notify_command": cfg.get("NOTIFY_COMMAND") or None,
+        "state_dir": resolve(cfg["STATE_DIR"]),
+        "name": clean(name, 80),
+        "allow_http": allow_http,
+        "time_limit": int(limit),
+        "user_agent": agent,
+    }
+
+
+def read_private_file(path, what):
+    """本人だけが読める 0600 のふつうのファイルの中身（リンクは断る。中身は出さない）"""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        raise ConfigError(what + " を読めません（リンクは不可）")
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o077:
+            raise ConfigError(what + " は自分だけが読める 0600 のファイルにします")
+        raw = os.read(fd, 4096)
+    finally:
+        os.close(fd)
+    return raw.decode("utf-8", "replace").strip()
+
+
+def read_webhook(cfg):
+    url = read_private_file(cfg["webhook_file"], "WEBHOOK_FILE")
+    try:
+        check_url(url, cfg["allow_http"], "WEBHOOK_FILE")
+    except ConfigError:
+        # URL の中身は出さない
+        raise ConfigError("WEBHOOK_FILE の中身が https の URL ではありません")
+    return url
+
+
+def read_token(cfg):
+    if not cfg["token_file"]:
+        return None
+    token = read_private_file(cfg["token_file"], "SENTINEL_TOKEN_FILE")
+    if not TOKEN.match(token):
+        raise ConfigError("SENTINEL_TOKEN_FILE の中身が 32 桁の 16 進ではありません（`sudo ec-sugar integrity token` が出すもの）")
+    return token
+
+
+# ---------- 道具 ----------
+
+OPENSSL = os.environ.get("EC_SENTINEL_OPENSSL", "")
+CURL = os.environ.get("EC_SENTINEL_CURL", "")
+DEADLINE = [None]   # 1 回の確認の締め切り（time.monotonic の値）
+
+
+def remaining_seconds():
+    if DEADLINE[0] is None:
+        return FETCH_SECONDS
+    left = DEADLINE[0] - time.monotonic()
+    if left < 1:
+        raise TimeLimit()
+    return max(1, min(FETCH_SECONDS, int(left)))
+
+
+def curl_base(cfg, seconds):
+    proto = "=http,https" if cfg["allow_http"] else "=https"
+    # -q は ~/.curlrc を読まないため、いちばん前に置く
+    return [CURL, "-q", "-sS", "--proto", proto, "--proto-redir", proto, "--max-redirs", "0",
+            "--connect-timeout", str(min(10, seconds)), "-m", str(seconds), "-A", cfg["user_agent"]]
+
+
+def fetch(url, limit, cfg, tmp, secret_config=None):
+    """GET して (番号, 見出しの辞書〔小文字の名前 → 値の並び〕, 中身) を返す。転送は追わない。上限を超えたら FetchError、締め切りを過ぎたら TimeLimit。
+    secret_config は curl の設定の行（トークンのヘッダー）で、引数でなく標準入力で渡す"""
+    seconds = remaining_seconds()
+    hdr_path = os.path.join(tmp, "headers")
+    if os.path.exists(hdr_path):
+        os.unlink(hdr_path)
+    args = curl_base(cfg, seconds) + ["--max-filesize", str(limit), "-D", hdr_path, "-o", "-"]
+    if secret_config:
+        args += ["-K", "-"]
+    args += ["--", url]
+    proc = subprocess.Popen(args, stdin=subprocess.PIPE if secret_config else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if secret_config:
+        proc.stdin.write(secret_config.encode("ascii"))
+        proc.stdin.close()
+    # 長さを名乗らずに流し続ける答えも、上限 + 1 バイトで読むのをやめる
+    body = proc.stdout.read(limit + 1)
+    if len(body) > limit:
+        proc.kill()
+        proc.wait()
+        raise FetchError("応答が大きすぎます（上限 {} KB）".format(limit // 1024))
+    proc.stdout.close()
+    code = proc.wait()
+    if code == 63:
+        raise FetchError("応答が大きすぎます（上限 {} KB）".format(limit // 1024))
+    if code == 28:
+        # 締め切りで短くした取得の時間切れは、1 回の時間の上限を越えたもの
+        if seconds < FETCH_SECONDS and DEADLINE[0] is not None:
+            raise TimeLimit()
+        raise FetchError("時間切れ")
+    if code != 0:
+        raise FetchError("接続できません（curl {}）".format(code))
+    try:
+        with open(hdr_path, "rb") as f:
+            raw = f.read(256 * 1024).decode("latin-1")
+    except OSError:
+        raise FetchError("見出しを読めません")
+    blocks = [b for b in re.split(r"\r?\n\r?\n", raw) if b.strip()]
+    if not blocks:
+        raise FetchError("見出しがありません")
+    lines = blocks[-1].splitlines()
+    m = re.match(r"HTTP/[\d.]+ (\d{3})", lines[0])
+    if not m:
+        raise FetchError("応答の形が違います")
+    headers = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers.setdefault(k.strip().lower(), []).append(v.strip())
+    return int(m.group(1)), headers, body
+
+
+def check_public_key(path):
+    try:
+        proc = subprocess.run([OPENSSL, "pkey", "-pubin", "-in", path, "-outform", "DER"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        raise ConfigError("公開鍵を読めません（PUBLIC_KEY）")
+    der = proc.stdout
+    if proc.returncode != 0 or len(der) != 44 or not der.startswith(ED25519_SPKI_PREFIX):
+        raise ConfigError("PUBLIC_KEY が Ed25519 の公開鍵の PEM ではありません")
+
+
+def verify(public_key, data, sig_b64, tmp):
+    try:
+        sig = base64.b64decode(re.sub(rb"\s", b"", sig_b64), validate=True)
+    except ValueError:
+        return False
+    if len(sig) != 64:
+        return False
+    data_path = os.path.join(tmp, "integrity.json")
+    sig_path = os.path.join(tmp, "integrity.sig")
+    with open(data_path, "wb") as f:
+        f.write(data)
+    with open(sig_path, "wb") as f:
+        f.write(sig)
+    proc = subprocess.run([OPENSSL, "pkeyutl", "-verify", "-pubin", "-inkey", public_key, "-rawin",
+                           "-in", data_path, "-sigfile", sig_path],
+                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    return proc.returncode == 0 and b"Signature Verified Successfully" in proc.stdout
+
+
+def parse_checked_at(value):
+    m = CHECKED_AT.match(value) if isinstance(value, str) else None
+    if not m:
+        return None
+    try:
+        y, mo, d, h, mi, s = (int(x) for x in m.groups())
+        return calendar.timegm((y, mo, d, h, mi, s, 0, 0, 0)) if 1 <= mo <= 12 and 1 <= d <= 31 and h < 24 and mi < 60 and s < 60 else None
+    except (ValueError, OverflowError):
+        return None
+
+
+def is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+# ---------- 様子 ----------
+
+def read_status(cfg, tmp):
+    """状態を取って確認する。('fetch', 理由) / ('signature', None) / ('format', 理由) / ('ok', 解いた中身)"""
+    sig_url = cfg["status_url"] + ".sig"
+    token = read_token(cfg)
+    # 合い言葉は様子の 2 つの取得にだけ付ける（ページには付けない。ふつうの客と見分けさせない）
+    secret = 'header = "{}: {}"\n'.format(TOKEN_HEADER, token) if token else None
+    for attempt in (1, 2):
+        try:
+            code, _, data = fetch(cfg["status_url"], STATUS_MAX, cfg, tmp, secret)
+            if code != 200:
+                raise FetchError("HTTP {}".format(code))
+            code, _, sig = fetch(sig_url, SIG_MAX, cfg, tmp, secret)
+            if code != 200:
+                raise FetchError("署名が HTTP {}".format(code))
+        except FetchError as e:
+            return "fetch", str(e)
+        except TimeLimit:
+            return "fetch", "1 回の時間の上限（{} 秒）を越えました".format(cfg["time_limit"])
+        if verify(cfg["public_key"], data, sig, tmp):
+            break
+        if attempt == 1:
+            time.sleep(SIG_RETRY_WAIT)
+    else:
+        return "signature", None
+    try:
+        doc = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return "format", "JSON として読めません"
+    if not isinstance(doc, dict):
+        return "format", "JSON の形が違います"
+    if not is_int(doc.get("format")) or doc.get("format") != 1:
+        return "format", "format が 1 ではありません"
+    if not isinstance(doc.get("server"), str) or not SERVER_ID.match(doc["server"]):
+        return "format", "server の形が違います"
+    if not is_int(doc.get("generation")) or doc["generation"] < 0:
+        return "format", "generation の形が違います"
+    checked = parse_checked_at(doc.get("checked_at"))
+    if checked is None:
+        return "format", "checked_at の形が違います"
+    if not isinstance(doc.get("ok"), bool):
+        return "format", "ok の形が違います"
+    if not isinstance(doc.get("problems"), list):
+        return "format", "problems の形が違います"
+    if "busy" in doc and not isinstance(doc["busy"], bool):
+        return "format", "busy の形が違います"
+    # problems は困りごとの種類（image・service・container・config・code・file・docker・expected・lock など）。
+    # 知らない種類も形が合えば並べる
+    problems = []
+    for p in doc["problems"]:
+        name = PROBLEM_NAME.sub("", p if isinstance(p, str) else "")[:64] or "（名前の無い問題）"
+        if name not in problems:
+            problems.append(name)
+    return "ok", {
+        "server": doc["server"],
+        "generation": doc["generation"],
+        "checked_at": checked,
+        "ok": doc["ok"],
+        "problems": sorted(problems),
+        "busy": doc.get("busy") is True,
+    }
+
+
+# ---------- 店頭の指紋 ----------
+
+def origin_of(url):
+    p = urlsplit(url)
+    try:
+        port = p.port
+    except ValueError:
+        port = None
+    default = {"https": 443, "http": 80}.get(p.scheme)
+    host = (p.hostname or "").lower()
+    return "{}://{}{}".format(p.scheme, host, "" if port in (None, default) else ":{}".format(port))
+
+
+def normalize_path(path):
+    return "/".join("{id}" if ID_SEGMENT.match(seg) else seg for seg in path.split("/"))
+
+
+def show_url(page_url, value, keep_query=True, ids=False, origin_only=False):
+    """属性の URL を、ページの URL から解いて見せる形に。同じ出どころはパスだけ、外は出どころか全部"""
+    value = (value or "").strip()
+    if value == "":
+        return "（このページ）"
+    if value.lower().startswith(("data:", "blob:")):
+        return value[:5].lower() + "…sha256=" + hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:16]
+    try:
+        absolute = urljoin(page_url, value)
+        p = urlsplit(absolute)
+    except ValueError:
+        return "（読めない URL）sha256=" + hashlib.sha256(value.encode("utf-8", "replace")).hexdigest()[:16]
+    if origin_of(absolute) == origin_of(page_url):
+        path = normalize_path(p.path) if ids else p.path
+        return clean((path or "/") + ("?" + p.query if keep_query and p.query else ""), 300)
+    if origin_only:
+        return clean(origin_of(absolute), 300)
+    return clean(absolute.split("#", 1)[0], 300)
+
+
+def normalize_csp(value):
+    # 要求ごとに変わる nonce はそろえる（店頭の CSP には今は無いが、印刷の画面などにある形）
+    value = re.sub(r"'nonce-[^']*'", "'nonce-*'", value)
+    directives = [re.sub(r"\s+", " ", d).strip() for d in value.split(";")]
+    return "; ".join(d for d in directives if d)
+
+
+def charset_of(value):
+    m = re.search(r"charset\s*=\s*[\"']?([^\s;\"']+)", value or "", re.I)
+    return m.group(1).lower() if m else None
+
+
+class Collector(HTMLParser):
+    """指紋に入れる要素を集める。HTMLParser として HTML を解く時と、raw_scan から生の HTML の要素を渡される時の両方で使う"""
+
+    def __init__(self, page_url, links=False):
+        super().__init__(convert_charrefs=True)
+        self.page_url = page_url
+        self.links = links
+        self.entries = []
+        self.scripts = []        # 中身を取りに行く同じ出どころのスクリプト（指紋の行の番号, URL）
+        self.link_origins = []
+        self.charsets = []       # meta が名乗った文字コード
+        self.inline = None
+        self.buf = []
+
+    def add(self, kind, ident="", value=""):
+        self.entries.append([kind, ident, value])
+
+    def script_src(self, raw, how=""):
+        absolute = None
+        try:
+            absolute = urljoin(self.page_url, raw.strip())
+        except ValueError:
+            pass
+        shown = show_url(self.page_url, raw) + how
+        same = absolute is not None and not raw.strip().lower().startswith(("data:", "blob:")) and origin_of(absolute) == origin_of(self.page_url)
+        self.add("script", shown, "")
+        if same:
+            self.scripts.append((len(self.entries) - 1, absolute.split("#", 1)[0]))
+
+    def handle_starttag(self, tag, attrs):
+        a = {}
+        for k, v in attrs:
+            if k not in a:
+                a[k] = v if v is not None else ""
+        for k, v in a.items():
+            if k.startswith("on"):
+                self.add("handler", clean(k, 40))
+            elif k in ("href", "src", "action", "formaction", "data", "xlink:href") and re.match(r"[\s\x00-\x20]*j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t\s*:", v, re.I):
+                self.add("javascript-url", clean(tag + "." + k, 40))
+        if tag == "script":
+            src = a.get("src") or a.get("href") or a.get("xlink:href")
+            if src:
+                self.script_src(src)
+                trusted = a.get("data-sugar-script-src")
+                if trusted is not None:
+                    # 核の Trusted Types の関所に渡す、外の宛先の一覧（ADR 0034）
+                    self.add("script", self.entries[-1][1] + " の Trusted Types の宛先", clean(trusted, 300))
+                self.inline = None
+            else:
+                self.inline = (a.get("type") or "").strip().lower() or "（type なし）"
+                self.buf = []
+        elif tag == "link":
+            rel = (a.get("rel") or "").lower().split()
+            if a.get("href") and ("modulepreload" in rel or ("preload" in rel and (a.get("as") or "").lower() == "script")):
+                self.script_src(a["href"], "（" + ("modulepreload" if "modulepreload" in rel else "preload") + "）")
+        elif tag == "form":
+            method = (a.get("method") or "get").strip().lower()
+            self.add("form", "", method + " " + show_url(self.page_url, a.get("action"), keep_query=False, ids=True))
+        elif tag in ("button", "input") and "formaction" in a:
+            self.add("form", "", "formaction " + show_url(self.page_url, a.get("formaction"), keep_query=False, ids=True))
+        elif tag in ("iframe", "frame"):
+            if "srcdoc" in a:
+                self.add("iframe", "", "srcdoc sha256=" + hashlib.sha256(a["srcdoc"].encode("utf-8", "replace")).hexdigest()[:16])
+            else:
+                # 宛先は出どころだけ（動画や地図の ID は店の人が直す値）。sandbox は守りの値なので入れる
+                sandbox = " sandbox=" + clean(" ".join(sorted(a["sandbox"].split())), 200) if "sandbox" in a else ""
+                self.add("iframe", "", show_url(self.page_url, a.get("src"), origin_only=True) + sandbox)
+        elif tag in ("object", "embed"):
+            self.add("object", "", show_url(self.page_url, a.get("data") or a.get("src"), origin_only=True))
+        elif tag == "meta":
+            if "charset" in a:
+                self.charsets.append(a["charset"].strip().lower())
+            if "http-equiv" in a:
+                name = a["http-equiv"].strip().lower()
+                content = a.get("content", "")
+                if name == "content-security-policy":
+                    content = normalize_csp(content)
+                if name == "content-type" and charset_of(content):
+                    self.charsets.append(charset_of(content))
+                self.add("meta", clean(name, 60), clean(content, 300))
+        elif tag == "base":
+            self.add("base", "", show_url(self.page_url, a.get("href")))
+        elif tag in ("a", "area") and self.links and a.get("href"):
+            # 外の出どころへのリンクの出どころだけ（道筋は店の人が直す値）。カートなどで「支払いはこちら」と偽の外へ誘うのに気づく
+            try:
+                absolute = urljoin(self.page_url, a["href"].strip())
+            except ValueError:
+                absolute = ""
+            if urlsplit(absolute).scheme in ("http", "https") and origin_of(absolute) != origin_of(self.page_url):
+                origin = clean(origin_of(absolute), 300)
+                if origin not in self.link_origins and len(self.link_origins) < MAX_LINK_ORIGINS:
+                    self.link_origins.append(origin)
+
+    def handle_data(self, data):
+        if self.inline is not None:
+            self.buf.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self.inline is not None:
+            kind = self.inline
+            body = "".join(self.buf)
+            if kind in DATA_ONLY_TYPES:
+                self.add("inline", kind, "")
+            else:
+                self.add("inline", clean(kind, 60), "sha256=" + hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest()[:32])
+            self.inline = None
+            self.buf = []
+
+    def finish(self):
+        for origin in self.link_origins:
+            self.add("link", "", origin)
+
+
+def raw_scan(text, collector):
+    """生の HTML の中の、< で始まる要素の開始の札を全部拾う（注釈・CDATA・スクリプトの中も）。
+    HTMLParser とブラウザで注釈の終わりの解き方が違い（<!--> や --!> など）、HTMLParser に見えない要素がブラウザでは生きることがあるため。
+    店頭の HTML には注釈もインラインの JavaScript も無い（JSON-LD は < を \\u003C で書く）ので、ふつうは HTMLParser と同じものだけを拾う"""
+    lower = text.lower()
+    n = len(text)
+    pos = 0
+    while True:
+        m = TAG_START.search(text, pos)
+        if not m:
+            break
+        name = m.group(1).lower()
+        i = m.end()
+        attrs = []
+        while i < n:
+            while i < n and text[i] in WS + "/":
+                i += 1
+            if i >= n or text[i] == ">":
+                break
+            am = ATTR_NAME.match(text, i)
+            key = am.group(0).lower()
+            i = am.end()
+            while i < n and text[i] in WS:
+                i += 1
+            value = None
+            if i < n and text[i] == "=":
+                i += 1
+                while i < n and text[i] in WS:
+                    i += 1
+                if i < n and text[i] in "\"'":
+                    j = text.find(text[i], i + 1)
+                    j = n if j < 0 else j
+                    value = text[i + 1:j]
+                    i = j + 1
+                else:
+                    vm = UNQUOTED.match(text, i)
+                    value = vm.group(0)
+                    i = vm.end()
+            attrs.append((key, html.unescape(value) if value is not None else None))
+        end = min(i + 1, n)
+        collector.handle_starttag(name, attrs)
+        if name == "script" and collector.inline is not None:
+            close = lower.find("</script", end)
+            collector.handle_data(text[end:close if close >= 0 else n])
+            collector.handle_endtag("script")
+        # 中身（スクリプトの中も）を飛ばさずに、次の < から続ける
+        pos = max(end, m.start() + 1)
+    collector.finish()
+
+
+def comment_spans(text):
+    """注釈（<!-- から次の --> まで）と CDATA（<![CDATA[ から ]]> まで）の中身を、古い読み方（いちばん長く取る）でつないで返す。
+    <!--> や --!> のように解き方の割れる形でも、次の --> までを 1 つの注釈とみなす（Python 3.14 までの HTMLParser と同じ）。
+    HTMLParser の読み方は版で変わる（3.15 はブラウザに寄せた）ので、隠れた要素の判定をそれに頼らず、この範囲の要素も隠れた要素にする。
+    店頭の HTML には注釈も CDATA も無いので、ふだんは空"""
+    parts = []
+    pos = 0
+    n = len(text)
+    while pos < n:
+        c = text.find("<!--", pos)
+        d = text.find("<![CDATA[", pos)
+        if c < 0 and d < 0:
+            break
+        if d < 0 or 0 <= c < d:
+            start, body, closer = c, c + 4, "-->"
+        else:
+            start, body, closer = d, d + 9, "]]>"
+        end = text.find(closer, body)
+        end = n if end < 0 else end
+        parts.append(text[body:end])
+        pos = max(end + len(closer), start + 1)
+    return "\n".join(parts)
+
+
+def fingerprint(page_url, cfg, tmp):
+    """1 ページの指紋。{"entries": [種類, 名前, 値] の並び, "hidden": 隠れた要素の行, "charset": UTF-8 でない理由}。開けなければ FetchError"""
+    code, headers, body = fetch(page_url, PAGE_MAX, cfg, tmp)
+    entries = []
+    result = {"entries": entries, "hidden": [], "charset": None}
+    for name in FINGERPRINT_HEADERS:
+        for value in headers.get(name, []):
+            entries.append(["header", name, clean(value.lower() if name == "content-type" else value, 300)])
+    if 300 <= code < 400:
+        entries.append(["status", "", str(code)])
+        entries.append(["redirect", "", show_url(page_url, (headers.get("location") or [""])[0])])
+        entries.sort()
+        return result
+    if not 200 <= code < 300:
+        raise FetchError("HTTP {}".format(code))
+    entries.append(["status", "", str(code)])
+    for value in headers.get("content-security-policy", []):
+        entries.append(["csp", "", normalize_csp(value)])
+    for value in headers.get("content-security-policy-report-only", []):
+        entries.append(["csp-report-only", "", normalize_csp(value)])
+
+    # 文字コード: UTF-8 のほかで解かせると、指紋を取った HTML とブラウザの解く HTML が変わる
+    reasons = []
+    if body.startswith((b"\xff\xfe", b"\xfe\xff")):
+        reasons.append("BOM が UTF-16")
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        text = body.decode("utf-8", "replace")
+        reasons.append("UTF-8 として読めない")
+    if text.startswith("﻿"):
+        text = text[1:]
+    links = page_url in cfg["links_pages"]
+    parsed = Collector(page_url, links)
+    try:
+        parsed.feed(text)
+        parsed.close()
+    except Exception:
+        raise FetchError("HTML を読めません")
+    parsed.finish()
+    scanned = Collector(page_url, links)
+    raw_scan(text, scanned)
+
+    declared = [c for c in [charset_of(v) for v in headers.get("content-type", [])] + scanned.charsets if c]
+    others = sorted(set(c for c in declared if c not in ("utf-8", "utf8")))
+    if others:
+        reasons.append("記載された文字コードが " + ", ".join(clean(c, 40) for c in others))
+    elif not declared and not body.startswith(b"\xef\xbb\xbf"):
+        reasons.append("文字コードを記載していない（Content-Type にも meta にも charset が無い）")
+    result["charset"] = "・".join(reasons) or None
+
+    # HTMLParser に見えず、生の HTML にある要素（注釈・CDATA などに隠したもの）。ブラウザでは生きることがある。
+    # あわせて、注釈と CDATA の範囲（古い読み方）にある要素も隠れた要素にする。HTMLParser の読み方が版で変わっても、同じ結果になるように
+    hidden = Counter(tuple(e) for e in scanned.entries) - Counter(tuple(e) for e in parsed.entries)
+    spans = comment_spans(text)
+    if spans:
+        inside = Collector(page_url, links)
+        raw_scan(spans, inside)
+        hidden |= Counter(tuple(e) for e in inside.entries)
+    result["hidden"] = sorted(render(list(e)) for e in hidden.elements())
+
+    cache = {}
+    for n, (index, url) in enumerate(scanned.scripts):
+        if n >= MAX_SCRIPTS:
+            scanned.entries[index][2] = "（数が多いので中身は見ていない）"
+            continue
+        if url not in cache:
+            try:
+                scode, _, sbody = fetch(url, SCRIPT_MAX, cfg, tmp)
+            except FetchError as e:
+                raise FetchError("スクリプト {} を取れません（{}）".format(scanned.entries[index][1], e))
+            if scode != 200:
+                raise FetchError("スクリプト {} を取れません（HTTP {}）".format(scanned.entries[index][1], scode))
+            cache[url] = "sha256=" + hashlib.sha256(sbody).hexdigest()[:32]
+        scanned.entries[index][2] = cache[url]
+    entries.extend(scanned.entries)
+    entries.sort()
+    return result
+
+
+def csp_diff(old, new):
+    def parse(v):
+        result = {}
+        for d in v.split(";"):
+            parts = d.split()
+            if parts:
+                result.setdefault(parts[0].lower(), set()).update(parts[1:])
+        return result
+    a, b = parse(old), parse(new)
+    lines = []
+    for name in sorted(set(a) | set(b)):
+        if name not in a:
+            lines.append("{} が足された（{}）".format(name, " ".join(sorted(b[name]))))
+        elif name not in b:
+            lines.append("{} が消えた".format(name))
+        else:
+            plus, minus = sorted(b[name] - a[name]), sorted(a[name] - b[name])
+            if plus:
+                lines.append("{} に足された: {}".format(name, " ".join(plus)))
+            if minus:
+                lines.append("{} から消えた: {}".format(name, " ".join(minus)))
+    return "、".join(lines) or "並びが変わった"
+
+
+def render(entry):
+    kind, ident, value = entry
+    label = KIND_LABELS.get(kind, kind)
+    text = " ".join(x for x in (ident, value) if x)
+    return clean("{} {}".format(label, text).strip(), 400)
+
+
+def page_diff(baseline, current):
+    """基準との違いを、足された・消えた・変わったの行で返す"""
+    base_c = Counter(tuple(e) for e in baseline)
+    cur_c = Counter(tuple(e) for e in current)
+    added = list((cur_c - base_c).elements())
+    removed = list((base_c - cur_c).elements())
+    lines = []
+    for key in sorted(set((e[0], e[1]) for e in added) & set((e[0], e[1]) for e in removed)):
+        olds = [e for e in removed if (e[0], e[1]) == key]
+        news = [e for e in added if (e[0], e[1]) == key]
+        for o, n in zip(olds, news):
+            removed.remove(o)
+            added.remove(n)
+            if o[0] in ("csp", "csp-report-only"):
+                lines.append("変わった: {}（{}）".format(KIND_LABELS[o[0]], clean(csp_diff(o[2], n[2]), 400)))
+            elif o[1] and o[0] == "script":
+                lines.append("変わった: {} の中身（{} → {}）".format(render([o[0], o[1], ""]), o[2] or "なし", n[2] or "なし"))
+            else:
+                lines.append("変わった: {} → {}".format(render(o), clean(n[2] or n[1], 300)))
+    lines += ["足された: " + render(e) for e in sorted(added)]
+    lines += ["消えた: " + render(e) for e in sorted(removed)]
+    return lines
+
+
+# ---------- 状態 ----------
+
+def open_state_dir(path):
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        st = os.lstat(path)
+    except OSError:
+        raise ConfigError("STATE_DIR を作れません")
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise ConfigError("STATE_DIR は自分の持ち物で、ほかの利用者が書けないディレクトリにします（リンクは不可）")
+
+
+def load_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else default
+    except (OSError, ValueError):
+        return default
+
+
+def save_json(path, data):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1, sort_keys=True)
+            f.write("\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def take_lock(state_dir):
+    fd = os.open(os.path.join(state_dir, "lock"), os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+# ---------- 知らせ ----------
+
+def slack_escape(text):
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def send(cfg, subject, body, tmp):
+    """通知を送る。全部の道で送れたら True（送れない道の中身は出さない）"""
+    text = "[{}] {}\n{}".format(cfg["name"], subject, body).strip()
+    sent = True
+    if cfg["webhook_file"]:
+        url = read_webhook(cfg)
+        payload = os.path.join(tmp, "payload.json")
+        with open(payload, "w", encoding="utf-8") as f:
+            # 知らせの中の URL（偽の宛先かもしれない）を Slack に開かせない
+            json.dump({"text": slack_escape(text), "unfurl_links": False, "unfurl_media": False}, f, ensure_ascii=False)
+        # URL は引数に載せず（ps に出る）、curl の設定として標準入力で渡す。check_url で " \ 空白を断っているので、そのまま書ける
+        args = curl_base(cfg, 20) + ["-o", "/dev/null", "-w", "%{http_code}", "-H", "Content-Type: application/json",
+                                     "--data-binary", "@" + payload, "-K", "-"]
+        try:
+            proc = subprocess.run(args, input='url = "{}"\n'.format(url).encode(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=40)
+            code = proc.stdout.decode("ascii", "replace").strip()
+        except (OSError, subprocess.TimeoutExpired):
+            code = ""
+        if not re.match(r"\A2\d\d\Z", code):
+            err("Webhook へ送れませんでした（{}）".format("HTTP " + code if code and code != "000" else "接続できない"))
+            sent = False
+    if cfg["notify_command"]:
+        env = dict(os.environ)
+        env["EC_SENTINEL_NAME"] = cfg["name"]
+        env["EC_SENTINEL_SUBJECT"] = clean("[{}] {}".format(cfg["name"], subject), 200)
+        try:
+            proc = subprocess.run(["/bin/sh", "-c", cfg["notify_command"]], input=(text + "\n").encode("utf-8"), env=env,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+            ok = proc.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            ok = False
+        if not ok:
+            err("NOTIFY_COMMAND が失敗しました")
+            sent = False
+    return sent
+
+
+# ---------- check ----------
+
+TITLES = {
+    "status:fetch": "状態（integrity.json）を {} 回続けて取れません".format(FAILS_BEFORE_ALERT),
+    "status:signature": "状態の署名が公開鍵で通りません（書き換えられたか、鍵が替わった）",
+    "status:format": "状態の形が違います",
+    "status:server": "状態の server が基準と違います（入れ直したか、別のサーバーを見ている。心当たりがあれば accept）",
+    "status:problems": "サーバーの内部の整合性チェックが問題を出しています（種類。細かい名前はサーバーで `sudo ec-sugar status`）",
+    "status:stale": "状態が古いままです（内部の整合性チェックが止まっている見込み）",
+    "status:future": "状態の時刻が先に進みすぎています（時計のずれか、偽造した状態）",
+    "status:busy": "更新などの途中（busy）が {} 分を超えています".format(BUSY_SECONDS // 60),
+    "run:timeout": "1 回の確認が時間の上限を越えました（遅い応答で監視を遅らせている見込み。見られなかったページは次の回に）",
+}
+RECOVERED = {
+    "status:fetch": "状態を取れるようになりました",
+    "status:signature": "状態の署名が通るようになりました",
+    "status:format": "状態の形が戻りました",
+    "status:server": "状態の server が基準と同じに戻りました",
+    "status:problems": "サーバーの内部の整合性チェックの問題が無くなりました",
+    "status:stale": "状態の時刻が新しくなりました",
+    "status:future": "状態の時刻のずれが無くなりました",
+    "status:busy": "更新などの途中（busy）が終わりました",
+    "run:timeout": "1 回の確認が時間の上限の中で終わりました",
+}
+PAGE_PREFIXES = ("page:", "pagefetch:", "baseline:", "pagehidden:", "pagecharset:")
+
+
+def counted(state, active, unknown, key, title, lines):
+    fails = state.setdefault("fails", {})
+    fails[key] = fails.get(key, 0) + 1
+    if fails[key] >= FAILS_BEFORE_ALERT:
+        active[key] = (title, lines, "")
+    else:
+        unknown.add(key)
+
+
+def clear(state, key):
+    state.setdefault("fails", {}).pop(key, None)
+
+
+def evaluate_status(cfg, state, tmp, t):
+    """状態の問題。active: キー → (題, 詳しい行, 同じ問題か見分ける印)、unknown: 今回は分からないキー、notices: 1 回だけのお知らせ、pending: 送れた時だけ残す値"""
+    active, unknown, notices, pending = {}, set(), [], {}
+    kind, result = read_status(cfg, tmp)
+    status_keys = ("status:signature", "status:format", "status:server", "status:problems", "status:stale", "status:future", "status:busy")
+    if kind == "fetch":
+        counted(state, active, unknown, "status:fetch", TITLES["status:fetch"], [clean(result)])
+        unknown.update(status_keys)
+        out("状態を取れません: " + clean(result))
+        return active, unknown, notices, pending
+    clear(state, "status:fetch")
+    if kind == "signature":
+        active["status:signature"] = (TITLES["status:signature"], [], "")
+        unknown.update(k for k in status_keys if k != "status:signature")
+        out("状態の署名が通りません")
+        return active, unknown, notices, pending
+    if kind == "format":
+        active["status:format"] = (TITLES["status:format"], [clean(result)], result)
+        unknown.update(k for k in status_keys if k not in ("status:signature", "status:format"))
+        out("状態の形が違います: " + result)
+        return active, unknown, notices, pending
+    s = result
+    age = t - s["checked_at"]
+    if age > STALE_SECONDS:
+        counted(state, active, unknown, "status:stale", TITLES["status:stale"], ["checked_at は約 {} 分前".format(age // 60)])
+    else:
+        clear(state, "status:stale")
+    if age < -FUTURE_SECONDS:
+        counted(state, active, unknown, "status:future", TITLES["status:future"], ["checked_at は約 {} 分先".format((-age) // 60)])
+    else:
+        clear(state, "status:future")
+
+    if state.get("server") is None:
+        state["server"] = s["server"]
+        state["generation"] = s["generation"]
+        out("最初の状態を記録しました（世代 {}）".format(s["generation"]))
+    elif state["server"] != s["server"]:
+        active["status:server"] = (TITLES["status:server"], [], s["server"])
+    else:
+        old = state.get("generation")
+        if is_int(old) and s["generation"] > old:
+            notices.append("基準の状態が変わりました（世代 {} → {}。更新か設定の変更）。心当たりが無ければ調べてください。"
+                           "更新の後なら、ショップの基準も accept で取り直してください".format(old, s["generation"]))
+        elif is_int(old) and s["generation"] < old:
+            notices.append("基準の状態の世代が下がりました（{} → {}）。バックアップから戻した・入れ直した時のほかは、"
+                           "古い状態を出し直されている見込みです。調べてください".format(old, s["generation"]))
+        if s["generation"] != old:
+            pending["generation"] = s["generation"]
+
+    if s["busy"]:
+        since = state.get("busy_since")
+        since = since if is_int(since) else t
+        state["busy_since"] = since
+        if t - since >= BUSY_SECONDS:
+            active["status:busy"] = (TITLES["status:busy"], ["約 {} 分前から".format((t - since) // 60)], "")
+        unknown.add("status:problems")
+        out("busy（約 {} 分）".format((t - since) // 60))
+    else:
+        state["busy_since"] = None
+        if not s["ok"]:
+            names = s["problems"][:MAX_PROBLEMS] or ["（名前なし）"]
+            more = len(s["problems"]) - MAX_PROBLEMS
+            lines = [", ".join(names) + ("（ほか {} 件）".format(more) if more > 0 else "")]
+            active["status:problems"] = (TITLES["status:problems"], lines, " ".join(s["problems"]))
+    out("状態: 世代 {}・ok={}{}・checked_at 約 {} 秒前".format(s["generation"], "true" if s["ok"] else "false",
+                                                          "・busy" if s["busy"] else "", age))
+    return active, unknown, notices, pending
+
+
+def evaluate_pages(cfg, state, baseline, tmp):
+    active, unknown = {}, set()
+    pages = baseline.get("pages", {}) if isinstance(baseline.get("pages"), dict) else {}
+    timed_out = False
+    for url in cfg["pages"]:
+        if url not in pages:
+            active["baseline:" + url] = ("ショップの基準がありません。`ec-sugar-sentinel accept <設定>` で取ってください", [url], "")
+        if timed_out:
+            unknown.update(p + url for p in PAGE_PREFIXES if p != "baseline:")
+            continue
+        try:
+            fp = fingerprint(url, cfg, tmp)
+        except TimeLimit:
+            timed_out = True
+            unknown.update(p + url for p in PAGE_PREFIXES if p != "baseline:")
+            out("時間の上限で見られなかった: " + url)
+            continue
+        except FetchError as e:
+            counted(state, active, unknown, "pagefetch:" + url, "ショップのページを {} 回続けて開けません".format(FAILS_BEFORE_ALERT), [url + "（" + clean(e) + "）"])
+            unknown.update(("page:" + url, "pagehidden:" + url, "pagecharset:" + url))
+            out("開けない: {}（{}）".format(url, clean(e)))
+            continue
+        clear(state, "pagefetch:" + url)
+        if fp["hidden"]:
+            mark = hashlib.sha256("\n".join(fp["hidden"]).encode()).hexdigest()
+            active["pagehidden:" + url] = ("ショップに、注釈などに隠した要素があります（ブラウザでは動く見込み。スクリプトの差し込みを疑う）",
+                                           [url] + ["隠れた: " + h for h in fp["hidden"]], mark)
+        if fp["charset"]:
+            active["pagecharset:" + url] = ("ショップのページが UTF-8 ではありません（監視とブラウザで解き方が変わる）", [url, fp["charset"]], fp["charset"])
+        if url not in pages:
+            unknown.add("page:" + url)
+            continue
+        diff = page_diff(pages[url], fp["entries"])
+        if diff:
+            mark = hashlib.sha256(json.dumps(fp["entries"], sort_keys=True).encode()).hexdigest()
+            active["page:" + url] = ("ショップの指紋が基準と違います（心当たりが無ければ、スクリプトの差し込みを疑う）", [url] + diff, mark)
+            out("ショップが基準と違う: {}（{} 件）".format(url, len(diff)))
+        else:
+            out("ショップ: 基準と同じ: " + url)
+    if timed_out:
+        active["run:timeout"] = (TITLES["run:timeout"], ["上限 {} 秒（設定 TIME_LIMIT）".format(cfg["time_limit"])], "")
+    # 設定から外したページの数を残さない
+    fails = state.setdefault("fails", {})
+    for key in list(fails):
+        if key.startswith("pagefetch:") and key[len("pagefetch:"):] not in cfg["pages"]:
+            fails.pop(key)
+    return active, unknown
+
+
+def in_phase(key, phase):
+    if phase == "status":
+        return key.startswith("status:")
+    return key.startswith(PAGE_PREFIXES) or key == "run:timeout"
+
+
+def known_key(key, cfg):
+    for prefix in PAGE_PREFIXES:
+        if key.startswith(prefix):
+            return key[len(prefix):] in cfg["pages"]
+    return True
+
+
+def recovery_text(key):
+    for prefix, text in (("page:", "ショップの指紋が基準と同じに戻りました: "), ("pagefetch:", "ショップのページを開けるようになりました: "),
+                         ("pagehidden:", "ショップの隠れた要素が無くなりました: "), ("pagecharset:", "ショップのページが UTF-8 に戻りました: ")):
+        if key.startswith(prefix):
+            return text + key[len(prefix):]
+    return RECOVERED.get(key, key)
+
+
+def settle(cfg, state, phase, active, unknown, notices, extra_recoveries, t, tmp):
+    """1 つの段（状態か店頭）の問題を、通知した印と比べて通知する。送れたら True"""
+    opened = state.get("open", {}) if isinstance(state.get("open"), dict) else {}
+    new_open = {k: v for k, v in opened.items() if not in_phase(k, phase)}
+    alerts, changes, recoveries = [], [], list(extra_recoveries)
+    for key, (title, lines, mark) in sorted(active.items()):
+        before = opened.get(key)
+        if before is None:
+            alerts.append((title, lines))
+            new_open[key] = {"since": t, "mark": mark}
+        else:
+            if before.get("mark", "") != mark:
+                changes.append((title, lines))
+            new_open[key] = {"since": before.get("since", t), "mark": mark}
+    for key, before in sorted(opened.items()):
+        if not in_phase(key, phase) or key in active or not known_key(key, cfg):
+            continue
+        if key in unknown:
+            new_open[key] = before
+            continue
+        if key.startswith("baseline:"):
+            continue
+        since = before.get("since", t) if isinstance(before, dict) else t
+        recoveries.append("{}（問題の続いた時間 約 {} 分）".format(recovery_text(key), max(0, (t - since) // 60)))
+
+    sent = True
+    if alerts or changes or recoveries or notices:
+        parts = []
+        for head, items in (("【要対応】", alerts), ("【要対応・中身が変わった】", changes)):
+            for title, lines in items:
+                parts.append(head + title)
+                parts += ["  " + clean(line, 500) for line in lines]
+        for line in recoveries:
+            parts.append("【戻りました】" + line)
+        for line in notices:
+            parts.append("【お知らせ】" + line)
+        if alerts or changes:
+            subject = "要対応 {} 件".format(len(alerts) + len(changes))
+        elif recoveries:
+            subject = "戻りました"
+        else:
+            subject = "お知らせ"
+        sent = send(cfg, subject, "\n".join(parts), tmp)
+        for line in parts:
+            out(line)
+    # 送れなければ、知らせた印を前のままにして、次の回にもう一度送る
+    if sent:
+        state["open"] = new_open
+    return sent
+
+
+LOCK_BLOCKED = "lock-blocked-since"
+LOCK_NOTIFIED = "lock-blocked-notified"
+
+
+def lock_blocked(cfg, tmp):
+    """ロックが取れない（前の回が終わらない）。LOCK_SECONDS 続いたら 1 回通知して 1 で終わる。状態は前の回が書くので、別のファイルに残す"""
+    t = now()
+    since_path = os.path.join(cfg["state_dir"], LOCK_BLOCKED)
+    notified_path = os.path.join(cfg["state_dir"], LOCK_NOTIFIED)
+    since = load_json(since_path, {}).get("since")
+    if not is_int(since):
+        since = t
+        save_json(since_path, {"since": since})
+    minutes = (t - since) // 60
+    if t - since < LOCK_SECONDS:
+        out("前の回がまだ動いています。今回は飛ばします（約 {} 分）".format(minutes))
+        return 0
+    if not os.path.exists(notified_path):
+        ok = send(cfg, "要対応 1 件", "【要対応】前の回の確認が約 {} 分終わりません（遅い応答で止められている・サーバーが詰まっている見込み）。"
+                  "監視の記録と、残った ec-sugar-sentinel の処理を見てください".format(minutes), tmp)
+        if not ok:
+            return 1
+        save_json(notified_path, {"since": since})
+    out("前の回が約 {} 分終わりません".format(minutes))
+    return 1
+
+
+def lock_recoveries(cfg):
+    since_path = os.path.join(cfg["state_dir"], LOCK_BLOCKED)
+    notified_path = os.path.join(cfg["state_dir"], LOCK_NOTIFIED)
+    lines = []
+    if os.path.exists(notified_path):
+        since = load_json(notified_path, {}).get("since")
+        minutes = max(0, (now() - since) // 60) if is_int(since) else 0
+        lines.append("前の回の確認が終わりました（問題の続いた時間 約 {} 分）".format(minutes))
+    return lines, (since_path, notified_path)
+
+
+def run_check(cfg, tmp):
+    state_path = os.path.join(cfg["state_dir"], "state.json")
+    state = load_json(state_path, {})
+    baseline = load_json(os.path.join(cfg["state_dir"], "baseline.json"), {})
+    t = now()
+    DEADLINE[0] = time.monotonic() + cfg["time_limit"]
+    lock_lines, lock_files = lock_recoveries(cfg)
+    if os.path.exists(lock_files[0]) and not lock_lines:
+        os.unlink(lock_files[0])
+
+    # 1. 様子（ページを見る前に知らせる。遅いページで様子の知らせを遅らせない）
+    active_s, unknown_s, notices, pending = evaluate_status(cfg, state, tmp, t)
+    sent_s = settle(cfg, state, "status", active_s, unknown_s, notices, lock_lines, t, tmp)
+    if sent_s:
+        if "generation" in pending:
+            state["generation"] = pending["generation"]
+        for path in lock_files:
+            if os.path.exists(path):
+                os.unlink(path)
+    state["last_check"] = t
+    save_json(state_path, state)
+
+    # 2. 店頭
+    active_p, unknown_p = evaluate_pages(cfg, state, baseline, tmp)
+    sent_p = settle(cfg, state, "pages", active_p, unknown_p, [], [], t, tmp)
+    save_json(state_path, state)
+
+    if not (sent_s and sent_p) or active_s or active_p:
+        return 1
+    if any(n > 0 for n in state.get("fails", {}).values()):
+        out("取れないものがあります（{} 回続けば通知します）".format(FAILS_BEFORE_ALERT))
+    else:
+        out("ok")
+    return 0
+
+
+# ---------- accept ----------
+
+def run_accept(cfg, tmp, force):
+    DEADLINE[0] = time.monotonic() + cfg["time_limit"]
+    kind, result = read_status(cfg, tmp)
+    if kind == "fetch":
+        err("状態を取れません（{}）。STATUS_URL とサーバーを確認してください".format(clean(result)))
+        return 1
+    if kind == "signature":
+        err("状態の署名が公開鍵で通りません。PUBLIC_KEY が `sudo ec-sugar integrity key` の出したものか確認してください")
+        return 1
+    if kind == "format":
+        err("状態の形が違います（{}）".format(result))
+        return 1
+    # 越えられる断り（--force）: サーバーが困りごとを出している・busy・様子が古いか先・隠れた要素・UTF-8 でない
+    refusals = []
+    if not result["ok"]:
+        refusals.append("サーバーの内部の整合性チェックが問題を出しています（{}{}）".format(", ".join(result["problems"]) or "名前なし",
+                                                                               "。busy の途中" if result["busy"] else ""))
+    elif result["busy"]:
+        out("サーバーは更新などの途中（busy）です。終わってからもう一度 accept すると確かです")
+    age = now() - result["checked_at"]
+    if age > STALE_SECONDS:
+        refusals.append("状態が古いままです（checked_at は約 {} 分前）".format(age // 60))
+    if age < -FUTURE_SECONDS:
+        refusals.append("状態の時刻が先に進みすぎています（約 {} 分先）".format((-age) // 60))
+    baseline_path = os.path.join(cfg["state_dir"], "baseline.json")
+    old = load_json(baseline_path, {}).get("pages", {})
+    pages = {}
+    for url in cfg["pages"]:
+        try:
+            fp = fingerprint(url, cfg, tmp)
+        except FetchError as e:
+            err("開けません: {}（{}）。基準は書き換えていません".format(url, clean(e)))
+            return 1
+        except TimeLimit:
+            err("時間の上限（{} 秒）を越えました: {}。基準は書き換えていません".format(cfg["time_limit"], url))
+            return 1
+        if fp["hidden"]:
+            refusals.append("{} に注釈などに隠した要素があります（{}）".format(url, "・".join(fp["hidden"][:5])))
+        if fp["charset"]:
+            refusals.append("{} が UTF-8 ではありません（{}）".format(url, fp["charset"]))
+        pages[url] = fp["entries"]
+    if refusals:
+        for line in refusals:
+            (out if force else err)(("越えます: " if force else "断りました: ") + clean(line, 600))
+        if not force:
+            err("先に調べてから accept してください（調べた上で取るなら --force）。基準は書き換えていません")
+            return 1
+    for url in cfg["pages"]:
+        out("== " + url)
+        if isinstance(old, dict) and url in old:
+            diff = page_diff(old[url], pages[url])
+            for line in diff or ["前の基準と同じ"]:
+                out("  " + line)
+        else:
+            for entry in pages[url]:
+                out("  " + render(entry))
+    save_json(baseline_path, {"accepted_at": now(), "pages": pages})
+    state_path = os.path.join(cfg["state_dir"], "state.json")
+    state = load_json(state_path, {})
+    state["server"] = result["server"]
+    state["generation"] = result["generation"]
+    opened = state.get("open", {}) if isinstance(state.get("open"), dict) else {}
+    state["open"] = {k: v for k, v in opened.items() if not k.startswith(("page:", "baseline:")) and k != "status:server"}
+    save_json(state_path, state)
+    out("基準を取りました（ページ {}・世代 {}）".format(len(pages), result["generation"]))
+    return 0
+
+
+def main():
+    cmd, conf, force = sys.argv[1], sys.argv[2], sys.argv[3] == "--force"
+    if not OPENSSL or not CURL:
+        err("ec-sugar-sentinel の bash の部分から実行してください")
+        return 2
+    try:
+        cfg = load_config(conf)
+        check_public_key(cfg["public_key"])
+        open_state_dir(cfg["state_dir"])
+        if cfg["webhook_file"]:
+            read_webhook(cfg)
+        read_token(cfg)
+    except ConfigError as e:
+        err("設定の誤り: " + str(e))
+        return 2
+    os.umask(0o077)
+    tmp = tempfile.mkdtemp(prefix="ec-sugar-sentinel-")
+    lock = None
+    try:
+        lock = take_lock(cfg["state_dir"])
+        if lock is None:
+            return lock_blocked(cfg, tmp) if cmd == "check" else (err("前の回がまだ動いています") or 1)
+        if cmd == "check":
+            return run_check(cfg, tmp)
+        if cmd == "accept":
+            return run_accept(cfg, tmp, force)
+        ok = send(cfg, "テスト通知です（ec-sugar-sentinel test-notify）", "この通知が届けば、外部監視の通知先は使えます。", tmp)
+        out("送りました" if ok else "送れませんでした")
+        return 0 if ok else 1
+    except ConfigError as e:
+        err("設定の誤り: " + str(e))
+        return 2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        if lock is not None:
+            os.close(lock)
+
+
+sys.exit(main())
+PYTHON

@@ -1,0 +1,32 @@
+# 隔離した写し（ADR 0082）: 本番のバックアップを使い捨ての VM に戻して確かめる時に、外へ何も出さない形。
+# ec-sugar restore --isolated が state/isolated の印を置くと、ec-sugar（deploy/lib/common.sh の ec_dc）が docker-compose.prod.yml に重ねる。
+# 印があるのにこのファイルが無いバージョン（前のバージョンへ戻した）では、ec-sugar は compose を流さずに止める（隔離が外れないように）。
+#
+#   - app・queue・scheduler は内側の網（internal。db・redis・Mailpit だけ）にだけ置く。外（Stripe・LINE・Slack・Webhook・写真の取り込み・
+#     郵便番号）へ出る網（edge・egress）と出口の代理の網（egress_in）から外す。代理（egress）も外へ出る網から外す。nginx から PHP へは網でなくソケット（fpm）なので、管理画面とショップはそのまま開ける
+#   - 隔離の印 EC_SUGAR_ISOLATED を環境変数で渡す（env ファイルを書き換えられても外れない）。アプリはこの印で、外への送信を断り
+#     （Http の口・Stripe の口）、メールを Mailpit か送らない形にし、ショップにタグの App を差し込まず、管理画面に帯を出す
+#   - 定期の処理（定期便の請求・カゴ落ちのお知らせ・抽選・知らせの係など）は動かさない。コンテナは起こしておく（ヘルスチェックと更新の形を変えない）
+#   - Cloudflare Tunnel の形には重ねない（ec-sugar restore --isolated が Tunnel の形のサーバーを断る。写しは FRONT=caddy で入れる）
+#
+# !override は compose 2.24.4 から（網の一覧を足すのでなく置き換える）。守りの確かめは docker/check-compose.sh の 13
+services:
+  app:
+    networks: !override [internal]
+    environment:
+      EC_SUGAR_ISOLATED: "true"
+  queue:
+    networks: !override [internal]
+    environment:
+      EC_SUGAR_ISOLATED: "true"
+  scheduler:
+    networks: !override [internal]
+    # 定期の処理を動かさない（眠るだけ。止める合図で終わるよう sh の trap で受ける）
+    command: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $$!; done"]
+    environment:
+      EC_SUGAR_ISOLATED: "true"
+  # 外への通信の出口の代理（ADR 0102）も外へ出る網（egress）から外す（アプリは代理の網にいないが、代理からも出さない）
+  egress:
+    networks: !override
+      egress_in:
+        ipv4_address: ${EC_SUGAR_EGRESS_ADDR:-172.30.255.194}

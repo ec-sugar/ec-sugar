@@ -1,0 +1,137 @@
+{
+    "name": "ec-sugar/plugin-member-ranks",
+    "description": "EC-SUGAR 公式の App: 会員ランク（直近 12 か月の購入額で決まるランクと、会員価格・ポイントの上乗せ・会員だけの商品）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginMemberRanks\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginMemberRanks\\MemberRanksServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "member-ranks",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "customers",
+            "settings": {
+                "ranks": {
+                    "type": "choice",
+                    "label": "使うランクの数",
+                    "help": "下から順に使います。3 つなら「ランク 1」〜「ランク 3」の全部、1 つなら「ランク 1」だけです。",
+                    "options": {
+                        "one": "1 つ",
+                        "two": "2 つ",
+                        "three": "3 つ"
+                    },
+                    "default": "three"
+                },
+                "rank1_name": {
+                    "type": "text",
+                    "label": "ランク 1 の名前",
+                    "help": "20 文字まで（空なら「ブロンズ」）。",
+                    "pattern": "\\S(?:.{0,18}\\S)?",
+                    "max": 20
+                },
+                "rank1_threshold": {
+                    "type": "text",
+                    "label": "ランク 1 になる購入額（円）",
+                    "help": "直近 12 か月の購入額（発送したご注文の額から返金を引いたもの）がこの額以上で、このランクになります。0〜99999999（空なら 10000）。",
+                    "pattern": "0|[1-9][0-9]{0,7}",
+                    "max": 8
+                },
+                "rank1_discount": {
+                    "type": "text",
+                    "label": "ランク 1 の会員価格（商品の代金の割引 %）",
+                    "help": "0〜50 の数（空なら 0）。0 なら割引はありません。",
+                    "pattern": "0|[1-9]|[1-4][0-9]|50",
+                    "max": 2
+                },
+                "rank1_points": {
+                    "type": "text",
+                    "label": "ランク 1 のポイントの上乗せ（%）",
+                    "help": "0〜10 の数で、0.1 きざみ（空なら 0.5）。店のポイントの率に足します（店の率と合わせて 20% まで）。ポイントを使う店だけで効きます。",
+                    "pattern": "[0-9](?:\\.[0-9])?|10(?:\\.0)?",
+                    "max": 4
+                },
+                "rank2_name": {
+                    "type": "text",
+                    "label": "ランク 2 の名前",
+                    "help": "20 文字まで（空なら「シルバー」）。",
+                    "pattern": "\\S(?:.{0,18}\\S)?",
+                    "max": 20
+                },
+                "rank2_threshold": {
+                    "type": "text",
+                    "label": "ランク 2 になる購入額（円）",
+                    "help": "ランク 1 の額より大きい額にします（空なら 50000）。",
+                    "pattern": "0|[1-9][0-9]{0,7}",
+                    "max": 8
+                },
+                "rank2_discount": {
+                    "type": "text",
+                    "label": "ランク 2 の会員価格（商品の代金の割引 %）",
+                    "help": "0〜50 の数（空なら 3）。",
+                    "pattern": "0|[1-9]|[1-4][0-9]|50",
+                    "max": 2
+                },
+                "rank2_points": {
+                    "type": "text",
+                    "label": "ランク 2 のポイントの上乗せ（%）",
+                    "help": "0〜10 の数で、0.1 きざみ（空なら 1）。",
+                    "pattern": "[0-9](?:\\.[0-9])?|10(?:\\.0)?",
+                    "max": 4
+                },
+                "rank3_name": {
+                    "type": "text",
+                    "label": "ランク 3 の名前",
+                    "help": "20 文字まで（空なら「ゴールド」）。",
+                    "pattern": "\\S(?:.{0,18}\\S)?",
+                    "max": 20
+                },
+                "rank3_threshold": {
+                    "type": "text",
+                    "label": "ランク 3 になる購入額（円）",
+                    "help": "ランク 2 の額より大きい額にします（空なら 100000）。",
+                    "pattern": "0|[1-9][0-9]{0,7}",
+                    "max": 8
+                },
+                "rank3_discount": {
+                    "type": "text",
+                    "label": "ランク 3 の会員価格（商品の代金の割引 %）",
+                    "help": "0〜50 の数（空なら 5）。",
+                    "pattern": "0|[1-9]|[1-4][0-9]|50",
+                    "max": 2
+                },
+                "rank3_points": {
+                    "type": "text",
+                    "label": "ランク 3 のポイントの上乗せ（%）",
+                    "help": "0〜10 の数で、0.1 きざみ（空なら 2）。",
+                    "pattern": "[0-9](?:\\.[0-9])?|10(?:\\.0)?",
+                    "max": 4
+                },
+                "notify": {
+                    "type": "toggle",
+                    "label": "ランクが上がったら会員にメールで通知する",
+                    "help": "毎日のランクの更新でランクが上がった会員に、新しいランクと特典をメールで知らせます。下がった時は知らせません。",
+                    "default": true
+                }
+            }
+        }
+    }
+}

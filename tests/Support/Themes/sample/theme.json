@@ -1,0 +1,110 @@
+{
+    "theme_api": 2,
+    "style": {
+        "tokens": ["sage-band"],
+        "palettes": {
+            "mono": { "label": "白と黒", "colors": { "canvas": "#ffffff", "band": "#f6f6f7", "ink": "#18181b", "accent": "#18181b" } },
+            "indigo": { "label": "藍", "colors": { "canvas": "#ffffff", "band": "#f3f5fa", "ink": "#1a1f36", "accent": "#283593", "sage-band": "#e8ebf5" } },
+            "sand": { "label": "砂", "colors": { "canvas": "#f6f2ec", "ink": "#2b2723", "accent": "#66745d" } }
+        },
+        "accent": true,
+        "fonts": { "gothic": { "label": "ゴシック" }, "mincho": { "label": "明朝" } },
+        "radius": { "square": { "label": "四角" }, "soft": { "label": "少し丸く" } }
+    },
+    "sections": {
+        "announcement": {
+            "label": "お知らせバナー",
+            "wireframe": "announcement-bar",
+            "limit": 1,
+            "fields": {
+                "text": { "type": "text", "label": "お知らせ", "max": 100 }
+            },
+            "example": { "text": "お知らせを入れてください" }
+        },
+        "hero": {
+            "label": "ヒーロー",
+            "patterns": {
+                "full": { "label": "全面", "wireframe": "hero-full" },
+                "split": { "label": "左右", "wireframe": "hero-split" },
+                "grid": { "label": "グリッド", "wireframe": "hero-grid" }
+            },
+            "fields": {
+                "heading": { "type": "text", "label": "見出し", "max": 60 },
+                "body": { "type": "textarea", "label": "文", "max": 200 },
+                "image": { "type": "image", "label": "写真" },
+                "link": { "type": "link", "label": "ボタンの行き先", "help": "ショップ内のパス（/products など）か https の URL" }
+            },
+            "blocks": {
+                "button": {
+                    "label": "ボタン",
+                    "fields": {
+                        "label": { "type": "text", "label": "文字", "max": 20 },
+                        "link": { "type": "link", "label": "行き先" }
+                    }
+                },
+                "photo": {
+                    "label": "写真",
+                    "fields": {
+                        "image": { "type": "image", "label": "写真" }
+                    }
+                }
+            },
+            "max_blocks": 3,
+            "example": { "heading": "見出しを入れてください", "body": "ここに文を入れてください。", "link": "/products" },
+            "example_blocks": [
+                { "type": "button", "values": { "label": "くわしく見る", "link": "/products" } }
+            ]
+        },
+        "features": {
+            "label": "特集",
+            "wireframe": "features-three",
+            "items": {
+                "label": "特集",
+                "max": 3,
+                "fields": {
+                    "title": { "type": "text", "label": "タイトル", "max": 30 },
+                    "image": { "type": "image", "label": "写真" },
+                    "tone": { "type": "choice", "label": "色", "options": { "light": "明るい", "dark": "暗い" } }
+                }
+            },
+            "example": {
+                "items": [
+                    { "title": "特集の題を入れてください", "tone": "light" },
+                    { "title": "2 つ目の特集", "tone": "dark" }
+                ]
+            }
+        },
+        "rail": {
+            "label": "商品の並び",
+            "wireframe": "products-grid",
+            "fields": {
+                "title": { "type": "text", "label": "タイトル", "max": 30 },
+                "products": { "type": "products", "label": "商品", "max": 4, "from": ["new", "pick"] }
+            },
+            "example": { "title": "新着の商品", "products": { "source": "new" } }
+        },
+        "shelves": {
+            "label": "カテゴリ",
+            "wireframe": "categories-cards",
+            "fields": {
+                "list": { "type": "categories", "label": "カテゴリ", "max": 4 }
+            }
+        }
+    },
+    "pages": {
+        "home": {
+            "types": ["announcement", "hero", "features", "rail", "shelves"],
+            "default": [
+                { "type": "announcement" },
+                { "type": "hero", "pattern": "full" },
+                { "type": "features" },
+                { "type": "rail" },
+                { "type": "shelves" }
+            ]
+        },
+        "page": {
+            "types": ["hero", "rail", "basic_text"],
+            "default": [{ "type": "hero", "pattern": "split" }]
+        }
+    }
+}

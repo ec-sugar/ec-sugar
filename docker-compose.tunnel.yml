@@ -1,0 +1,63 @@
+# EC-SUGAR を Cloudflare Tunnel で出す形（FRONT=tunnel。ADR 0052）
+#
+# docker-compose.prod.yml に重ねて使う（インストーラーと ec-sugar が、答えの FRONT=tunnel のときだけ -f で足す）:
+#
+#   インターネット → Cloudflare → cloudflared（このサーバーから Cloudflare へつなぎに行く。家の網に穴を開けない）
+#     → caddy（今までどおり https。証明書は DNS の確かめで取る）→ web（nginx）→ app（PHP）
+#
+#   - cloudflared は caddy の 443 番へ、要求のホスト名どおりの名前（SNI）で https でつなぐ（Cloudflare から先も暗号のまま）
+#   - caddy は tunnel の網（cloudflared と caddy だけ・外へ出られない）の cloudflared の住所から来た接続のときだけ、
+#     CF-Connecting-IP を接続元にする（docker/caddy/etc/front-tunnel.servers）。caddy の受け口は 127.0.0.1（EC_SUGAR_BIND。
+#     インストーラーが決める）なので、外からは届かず、サーバーの中からの健全の確かめは今までどおり使える
+#   - cloudflared の設定（行き先）とトークンは、ホストの EC_SUGAR_TUNNEL_DIR（root の持ち物・cloudflared の利用者だけが読める）を読み取り専用で。
+#     トークンは環境変数や引数に出さない（--token-file）
+services:
+  caddy:
+    environment:
+      EC_SUGAR_FRONT: tunnel
+      EC_SUGAR_TUNNEL_ADDR: ${EC_SUGAR_TUNNEL_ADDR:-172.30.255.242}
+    networks:
+      tunnel: {}
+
+  cloudflared:
+    # バージョンは digest まで固定（出てから 7 日より後のもの。上げるときは docs/development/dependencies.md の決まりで）
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    # caddy（65532）とも www-data とも違う、root でない利用者
+    user: "65533:65533"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    # 自分で更新しない（バージョンはここで決める）。様子の口はコンテナの中の 127.0.0.1 だけ
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "--config", "/etc/cloudflared/config.yml", "run", "--token-file", "/etc/cloudflared/token"]
+    volumes:
+      - ${EC_SUGAR_TUNNEL_DIR:-}:/etc/cloudflared:ro
+    networks:
+      tunnel:
+        ipv4_address: ${EC_SUGAR_TUNNEL_ADDR:-172.30.255.242}
+      tunnel_out: {}
+    depends_on:
+      caddy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  # cloudflared と caddy だけの網。外へ出られない。cloudflared の住所を固定し（caddy が信じる住所）、自動で配る住所（caddy）は後ろ半分だけ
+  tunnel:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${EC_SUGAR_TUNNEL_SUBNET:-172.30.255.240/29}
+          ip_range: ${EC_SUGAR_TUNNEL_RANGE:-172.30.255.244/30}
+          gateway: ${EC_SUGAR_TUNNEL_GATEWAY:-172.30.255.241}
+  # cloudflared が Cloudflare へつなぎに行くための網（ほかのコンテナとは分ける）
+  tunnel_out: {}

@@ -1,0 +1,13 @@
+# 知らせの係（operations:alert）をサーバーから走らせる。知らせの係は定期の処理（scheduler）の中でも毎分走るが、
+# 定期の処理が止まると「止まった」ことの知らせも出ない。これが 10 分ごとに app の中で直に走らせる（回どうしは知らせの係の鍵で 1 つずつ）
+# Cloudflare Tunnel の形では、先によそからトンネルにつながっている接続役が無いかを確かめて運営の様子へ渡す（見直しの中 5）
+[Unit]
+Description=EC-SUGAR watch (alerts even when the scheduler stops)
+Requires=docker.service
+After=docker.service ec-sugar.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar watch
+TimeoutStartSec=300
+Nice=5

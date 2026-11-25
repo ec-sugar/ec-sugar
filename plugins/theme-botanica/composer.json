@@ -1,0 +1,28 @@
+{
+    "name": "ec-sugar/theme-botanica",
+    "description": "EC-SUGAR 公式テーマ 3（botanica）。セージと白、植物の写真を組み合わせたボタニカルテーマ",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\ThemeBotanica\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\ThemeBotanica\\ThemeServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "theme",
+            "name": "botanica",
+            "theme_api": 2,
+            "core": "^1.0"
+        }
+    }
+}

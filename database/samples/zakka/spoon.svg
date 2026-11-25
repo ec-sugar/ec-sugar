@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="1200" fill="#e9e7e3"/>
+  <g transform="rotate(-38 600 600)">
+    <ellipse cx="600" cy="910" rx="70" ry="30" fill="#000" opacity=".08" transform="translate(30 30)"/>
+    <rect x="574" y="260" width="52" height="500" rx="26" fill="#000" opacity=".08" transform="translate(24 24)"/>
+    <ellipse cx="600" cy="860" rx="110" ry="150" fill="#000" opacity=".08" transform="translate(24 24)"/>
+    <rect x="576" y="250" width="48" height="520" rx="24" fill="#c3a057"/>
+    <rect x="576" y="250" width="16" height="520" rx="8" fill="#e3c98a" opacity=".7"/>
+    <ellipse cx="600" cy="860" rx="110" ry="150" fill="#c3a057"/>
+    <ellipse cx="600" cy="866" rx="88" ry="124" fill="#b08b40"/>
+    <ellipse cx="572" cy="826" rx="26" ry="56" fill="#ead39c" opacity=".7"/>
+  </g>
+  <text x="1160" y="1160" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="26" letter-spacing="6" fill="#000" opacity=".22">SAMPLE</text>
+</svg>

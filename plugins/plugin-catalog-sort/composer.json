@@ -1,0 +1,67 @@
+{
+    "name": "ec-sugar/plugin-catalog-sort",
+    "description": "EC-SUGAR の App: 並び順と絞り込み",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginCatalogSort\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginCatalogSort\\CatalogSortServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "catalog-sort",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "products",
+            "settings": {
+                "order_first": {
+                    "type": "toggle",
+                    "label": "最初から「おすすめ順」で並べる",
+                    "help": "お店で決めた並びを、商品一覧の最初の並びにします。オフにすると、お客さんが「おすすめ順」を選んだ時だけその並びになります。",
+                    "default": true
+                },
+                "price_filter": {
+                    "type": "toggle",
+                    "label": "価格で絞り込めるようにする",
+                    "help": "商品一覧に価格帯（「¥1,000 未満」など）の絞り込みを出します。",
+                    "default": true
+                },
+                "price_bands": {
+                    "type": "text",
+                    "label": "価格帯の区切り（円）",
+                    "help": "半角の数字とカンマで（例: 1000,3000,5000,10000）。5 つまで。空なら 1,000・3,000・5,000・10,000 円で区切ります。",
+                    "pattern": "[0-9]{1,7}(,[0-9]{1,7}){0,4}",
+                    "max": 39
+                },
+                "tag_filter": {
+                    "type": "toggle",
+                    "label": "タグで絞り込めるようにする",
+                    "help": "この App の画面で商品に付けたタグを、商品一覧の絞り込みに出します。",
+                    "default": true
+                },
+                "stock_filter": {
+                    "type": "toggle",
+                    "label": "「在庫あり」で絞り込めるようにする",
+                    "help": "お客さんが、売り切れの商品を一覧から隠せるようにします。",
+                    "default": true
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,20 @@
+{{-- App「__TITLE__」のショップの画面（make:plugin のひな形から）。$items（受付中の記録）。文は {{ }} でエスケープする（{!! !!} は使わない） --}}
+@extends($theme->view('layout'))
+
+@section('title', '__TITLE__ — '.$shop->name)
+
+@section('content')
+    <div class="sugar-page" data-test="__NAME__-index">
+        <h1 class="sugar-page__title">__TITLE__</h1>
+
+        @if ($items->isEmpty())
+            <p class="sugar-page__lead" data-test="__NAME__-empty">いまはありません。</p>
+        @else
+            <ul data-test="__NAME__-items">
+                @foreach ($items as $item)
+                    <li>{{ $item->title }}</li>
+                @endforeach
+            </ul>
+        @endif
+    </div>
+@endsection

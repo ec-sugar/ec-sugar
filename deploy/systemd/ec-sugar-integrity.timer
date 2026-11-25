@@ -1,0 +1,10 @@
+# 毎分。外の見張りは checked_at が 5 分より古いと知らせるので、1 回とばしても誤報にならない間隔
+[Unit]
+Description=EC-SUGAR integrity check timer
+
+[Timer]
+OnCalendar=*:*:00
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

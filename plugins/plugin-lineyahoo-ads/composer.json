@@ -1,0 +1,65 @@
+{
+    "name": "ec-sugar/plugin-lineyahoo-ads",
+    "description": "EC-SUGAR の App: LINEヤフー広告の計測タグ（ディスプレイ広告・検索広告〔ショッピング〕・LINE 面の計測）をショップに差し込む（ADR 0034）",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "AGPL-3.0-only",
+    "authors": [
+        {
+            "name": "Fivenine design"
+        }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "EcSugar\\PluginLineyahooAds\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "EcSugar\\PluginLineyahooAds\\LineyahooAdsServiceProvider"
+            ]
+        },
+        "ec-sugar": {
+            "type": "plugin",
+            "name": "lineyahoo-ads",
+            "plugin_api": 1,
+            "core": "^1.0",
+            "category": "marketing",
+            "settings": {
+                "tag_id": {
+                    "type": "text",
+                    "label": "タグ ID",
+                    "help": "ビジネスマネージャーの計測タグの画面で見られる、英数字とハイフンの 36 文字の ID です（例: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d）。",
+                    "pattern": "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+                    "max": 36,
+                    "required": true
+                }
+            },
+            "disclosure": [
+                {
+                    "company": "LINEヤフー株式会社",
+                    "data": "見たページの URL、参照元、ブラウザと端末の情報、Cookie とローカルストレージの識別子、購入したときの注文の番号・金額・通貨・品の ID と数",
+                    "purpose": "LINEヤフー広告（Yahoo! JAPAN・LINE などに出す広告）の効果の測定と、広告の配信のため",
+                    "policy": "https://www.lycorp.co.jp/ja/company/privacypolicy/"
+                }
+            ],
+            "storefront": {
+                "scripts": [
+                    {
+                        "file": "lineyahoo-ads.js",
+                        "pages": ["general", "purchase"]
+                    }
+                ],
+                "csp": {
+                    "script-src": ["https://tag.flvcdn.net"],
+                    "connect-src": ["https://apm.yahoo.co.jp"]
+                },
+                "consent": ["ads"]
+            }
+        }
+    }
+}
