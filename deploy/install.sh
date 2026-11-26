@@ -41,8 +41,12 @@ EC_DOCKER_GPG_FPR=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 EC_ACME_DEFAULT=https://acme-v02.api.letsencrypt.org/directory
 # 答えのファイルに書ける鍵。ACME_CA・ACME_CA_ROOT は試験用（Pebble などの試験の認証局に向ける。本番では書かない）。
 # OFFSITE_… はサーバーの外のバックアップ（S3 互換の置き場。任意。ADR 0110）: 入口・バケット・名前の頭（無ければ管理画面のホスト）・
-# リージョン（無ければ auto）・置き場の書く鍵のファイル・暗号の公開鍵のファイル・暗号化するか（既定 yes）・置き場のロックを確かめるか
-EC_ANSWER_KEYS="MODE TIMEZONE SHOPS FRONT PROXY_GROUP PROXY_GROUP_SHARED_OK ADMIN_HOST SHOP_HOST SHOP_DOMAIN SHOP_ID SHOP_NAME SAMPLES BIND LAN_CIDR ADMIN_ALLOWED_IPS OPERATOR_EMAIL OPERATOR_NAME TLS_CERT TLS_KEY CLOUDFLARE_TOKEN_FILE TUNNEL_TOKEN_FILE TUNNEL_WATCH_TOKEN_FILE ACME_CA ACME_CA_ROOT UPDATE_BRANCH AUTO_UPDATE CHANNEL TRUST_SIGNERS_FILE TRUST_FINGERPRINTS OFFSITE_ENDPOINT OFFSITE_BUCKET OFFSITE_PREFIX OFFSITE_REGION OFFSITE_KEY_FILE OFFSITE_RECIPIENT_FILE OFFSITE_ENCRYPT OFFSITE_LOCK_CHECK"
+# リージョン（無ければ auto）・置き場の書く鍵のファイル・暗号の公開鍵のファイル・暗号化するか（既定 yes）・置き場のロックを確かめるか。
+# USAGE_SHARE は使用状況の共有（yes か no。ADR 0113。端末が無く、設定ファイルにも無ければ no）
+EC_ANSWER_KEYS="MODE TIMEZONE SHOPS FRONT PROXY_GROUP PROXY_GROUP_SHARED_OK ADMIN_HOST SHOP_HOST SHOP_DOMAIN SHOP_ID SHOP_NAME SAMPLES BIND LAN_CIDR ADMIN_ALLOWED_IPS OPERATOR_EMAIL OPERATOR_NAME TLS_CERT TLS_KEY CLOUDFLARE_TOKEN_FILE TUNNEL_TOKEN_FILE TUNNEL_WATCH_TOKEN_FILE ACME_CA ACME_CA_ROOT UPDATE_BRANCH AUTO_UPDATE CHANNEL TRUST_SIGNERS_FILE TRUST_FINGERPRINTS OFFSITE_ENDPOINT OFFSITE_BUCKET OFFSITE_PREFIX OFFSITE_REGION OFFSITE_KEY_FILE OFFSITE_RECIPIENT_FILE OFFSITE_ENCRYPT OFFSITE_LOCK_CHECK USAGE_SHARE"
+# 公式の店のメルマガの登録ページ（新しいバージョンとセキュリティの修正のお知らせ。インストーラーはメールアドレスを集めず、最後にここを案内する。
+# 登録は公式の店のメルマガ App が確認のメールで確定する二段階）
+EC_NEWS_URL=https://official.ec-sugar.jp/p/newsletter
 # 公開の DNS の聞き先（DNS over HTTPS。サーバーの中の /etc/hosts や家の DNS に惑わされない）と、このサーバーの外から見た住所の聞き先。
 # EC_SUGAR_TEST_… は試験のときだけ替える（使い捨ての機械で、偽の DNS に向けて待ちと案内を確かめる）
 EC_DOH_URL="${EC_SUGAR_TEST_DOH_URL:-https://1.1.1.1/dns-query}"
@@ -405,6 +409,55 @@ import_answers() {
     ec_ok "設定ファイル $ANSWERS_IN を読んだ"
 }
 
+# 使用状況の共有（ADR 0113）。既定は「はい」[Y/n]。質問の文に、送るもの・送らないもの・止め方を書く。
+# ほかの項目の ask と違うところ:
+#   - 前から入っているサーバー（2 回目からの実行）には聞かない。設定ファイルに USAGE_SHARE が無ければ off のまま（更新しても勝手に on にしない）
+#   - 端末が無く、設定ファイルにも無ければ止めずに no（聞いていないのに送らない）
+ask_usage_share() {
+    local val
+    if val="$(ec_answer USAGE_SHARE)"; then
+        is_yes_no "$val" || ec_die "設定ファイル $EC_ANSWERS の USAGE_SHARE=$val が正しくありません（yes か no）" "$EC_ANSWERS を直して再実行する"
+        return 0
+    fi
+    installed && return 0
+    if ! has_tty; then
+        ec_kv_set "$EC_ANSWERS" USAGE_SHARE no
+        ec_say "端末が無く、設定ファイルに USAGE_SHARE が無いので、使用状況は共有しません（始めるには、入れた後に sudo ec-sugar usage on）"
+        return 0
+    fi
+    {
+        printf '\n   使用状況を EC-SUGAR の開発元と共有しますか?（入れた台数とバージョンを知り、直す順番を決めるのに使います）\n'
+        printf '     送るもの: このサーバーのために作るランダムな ID・EC-SUGAR のバージョン・OS の名前とバージョン・CPU の種類・このサーバーの店の数（数だけ）。入れた時に 1 回と、そのあと週 1 回\n'
+        printf '     送らないもの: 店の名前・ドメイン・店の ID・注文・お客さんの情報・設定の値。送信先（%s）は、台数を数える記録に IP アドレスを残しません\n' "$EC_USAGE_URL_DEFAULT"
+        printf '     止め方: 後からいつでも sudo ec-sugar usage off（送る中身は sudo ec-sugar usage で見られます）\n'
+    } > /dev/tty
+    while :; do
+        read -r -p "   > [Y/n] " val < /dev/tty
+        case "$val" in
+            "" | [Yy] | [Yy][Ee][Ss]) val=yes; break ;;
+            [Nn] | [Nn][Oo]) val=no; break ;;
+            *) printf '   y か n で答えてください\n' > /dev/tty ;;
+        esac
+    done
+    ec_kv_set "$EC_ANSWERS" USAGE_SHARE "$val"
+}
+
+# 入れた時の 1 回（install）を送る（共有する設定の時だけ。送れなくても止めない。週 1 回の回が送る）。
+# 再実行で送り直さないように、試した時刻を state/usage_install に残す
+send_install_usage() {
+    ec_usage_enabled || return 0
+    [ ! -e "$EC_STATE/usage_install" ] || return 0
+    ec_say "$(ec_usage_send install)"
+    ec_state_put usage_install "$(ec_now)" || true
+}
+
+# 新しいバージョンとセキュリティの修正のお知らせの受け取り方（メールアドレスはここで集めない。公式の店のメルマガの登録ページへ）
+news_note() {
+    printf '\n   新しいバージョンとセキュリティの修正のお知らせをメールで受け取るには、公式の店のメルマガに登録してください\n'
+    printf '   （このインストーラーはメールアドレスを集めません。登録すると確認のメールが届き、リンクを押すと登録が完了します）:\n\n'
+    printf '       %s\n' "$EC_NEWS_URL"
+}
+
 # 証明書の取り方の答え（任意）を確かめる。どれも無ければ auto（Let's Encrypt から自動で）
 check_tls_answers() {
     local cert key cf acme root mode
@@ -585,6 +638,7 @@ ask_all() {
     # 入れるなら答えのファイルに AUTO_UPDATE=yes（開発の形でも、早送りのコミットだけを取り込む）
     default_answer AUTO_UPDATE "$([ "$(ec_channel)" = release ] && echo yes || echo no)"
     ask AUTO_UPDATE "" no is_yes_no "yes か no"
+    ask_usage_share
     check_tls_answers
     # サーバーの外のバックアップの答え（任意。聞かない。書いてあれば、何も入れる前に形を確かめる）
     ec_offsite_check_answers
@@ -609,6 +663,11 @@ ask_all() {
         ec_ok "サンプル: $(ec_sample_label "$samples")$(ec_sample_fetches "$samples" && echo '。写真は Unsplash から取る')（後から管理画面のホームでまとめて消せる）"
     fi
     ec_ok "管理画面を開ける接続元: $(ec_answer ADMIN_ALLOWED_IPS)"
+    if ec_usage_enabled; then
+        ec_ok "使用状況の共有: する（ランダムな ID・バージョン・OS・CPU の種類・店の数だけ。入れた時と週 1 回。止めるには sudo ec-sugar usage off）"
+    else
+        ec_ok "使用状況の共有: しない（始めるには sudo ec-sugar usage on）"
+    fi
     if [ "$(ec_front)" = proxy ]; then
         ec_ok "リバースプロキシ: すでにある Web サーバーの後ろに置く（EC-SUGAR は $EC_FRONT_SOCKET で待ち、グループ $(ec_answer PROXY_GROUP) だけが接続できる。証明書はすでにある Web サーバーで取る）"
     elif [ "$(ec_front)" = tunnel ]; then
@@ -1574,6 +1633,8 @@ main() {
 
     ec_stage 5 "$EC_STAGES" "仕上げ" "https で開けるかを確認、管理画面に入るアドレスを出します"
     finish
+    send_install_usage
+    news_note
 }
 
 main

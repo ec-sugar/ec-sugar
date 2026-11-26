@@ -42,7 +42,7 @@ final class PluginListTest extends TestCase
     public function test_an_owner_sees_the_installed_themes_and_the_shops_using_them(): void
     {
         $this->enrolledOperator();
-        $response = $this->send('GET', '/api/plugins')->assertOk()->assertJsonPath('core_version', '1.0.0');
+        $response = $this->send('GET', '/api/plugins')->assertOk()->assertJsonPath('core_version', '1.1.0');
         $packages = $response->collect('packages')->keyBy('package');
 
         // 公開用の木（1.0。ADR 0098）は定期便・予約・チケット・抽選販売の App が入っていないので、入っていない App の名前は除いて比べる

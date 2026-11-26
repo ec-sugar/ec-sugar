@@ -1,0 +1,13 @@
+# 使用状況の共有（ADR 0113）の週 1 回。サーバーごとに送る時刻をばらし（RandomizedDelaySec。FixedRandomDelay でサーバーごとに決まった時刻）、
+# 止まっていた間の回は起動の後に 1 回だけ送る（Persistent）。有効にするのは共有する設定の時だけ（install.sh・sudo ec-sugar usage on）
+[Unit]
+Description=EC-SUGAR usage sharing timer
+
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=6d
+FixedRandomDelay=true
+Persistent=true
+
+[Install]
+WantedBy=timers.target

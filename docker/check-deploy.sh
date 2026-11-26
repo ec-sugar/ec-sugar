@@ -50,6 +50,8 @@
 #      合い言葉は端末かファイルから・ほかの人が読めるキットと合い言葉のファイルを断る・形の違うキットを中身を出さずに断る・開いた中身を残さない。
 #      --kit と、ばらの鍵・入口の引数を同時に渡すと断る。gpg・python3・jq が要る（無ければ NG。黙って飛ばさない）。
 #      実際に置き場から取る確かめは docker/check-offsite.sh の 14
+#  20. 使用状況の共有（ADR 0113）: docker/check-usage.sh を流す（ID・送る JSON の項目・共有しない時に何もしない・送れなくても落ちない・
+#      https だけ・unit は共有する時だけ有効。中身はそちらの頭）
 set -euo pipefail
 # 管の先で「あるか」を見る grep -q の代わり。grep -q は見つけた時点で読むのをやめるので、前のコマンドが書き込みの途中だと管が切れ、
 # pipefail の下では偽の失敗になる（タイミングしだいで、たまにだけ落ちる）。先に全部を受け取ってから探す
@@ -2185,6 +2187,18 @@ else
     EC_LOCK="$saved_lock19"
     unset -f kit19 tool19 leak19 left19 seal19
     unset EC_RESTORE_KEY k19 keypass19 kitpass19 id19 secret19 app19 good19 fpr19 args19
+fi
+
+# ---------- 20. 使用状況の共有（ADR 0113） ----------
+# 偽の curl・systemctl・dpkg で、ID・送る JSON・共有しない時に何もしない・送れなくても落ちない・unit の有効と無効を確かめる（別のスクリプトで）。
+# bash 4 以上と GNU の stat が要る。手元の Mac には無いので見送る（CI では必ず流れる）
+if ! PATH="$start_path" bash -c '[ "${BASH_VERSINFO[0]}" -ge 4 ] && stat -c %a /' > /dev/null 2>&1; then
+    echo "見送り: 使用状況の共有（docker/check-usage.sh）は bash 4 以上と GNU の stat が要る（CI と Ubuntu で流す）"
+elif PATH="$start_path" bash docker/check-usage.sh "$lib" > "$work/usage.out" 2>&1; then
+    ok "使用状況の共有（docker/check-usage.sh）: $(grep -c '^ok:' "$work/usage.out") 項目"
+else
+    grep -E '^NG' "$work/usage.out" | while IFS= read -r line; do echo "$line"; done
+    ng "使用状況の共有（docker/check-usage.sh）が通らない"
 fi
 
 [ "$fails" -eq 0 ] || { echo "NG が ${fails} 件"; exit 1; }

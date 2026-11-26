@@ -1,0 +1,17 @@
+# 使用状況の共有（ADR 0113）。週 1 回、ランダムな ID・バージョン・OS・CPU の種類・店の数だけを開発元へ送る（deploy/lib/common.sh の ec_usage_send）。
+# 共有する設定（設定ファイルの USAGE_SHARE=yes）の時だけ timer を有効にする。設定が off なら ec-sugar usage send は何もせずに 0 で終わる。
+# 送れなくても 0 で終わる（失敗の扱いにしない。journal に 1 行残るだけ）
+[Unit]
+Description=EC-SUGAR usage sharing (weekly)
+After=network-online.target docker.service ec-sugar.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ec-sugar usage send
+# curl は 10 秒で切る。読むのは設定ファイルと state と、店の数（docker compose exec で中央の DB の tenants の行の数）だけで、
+# 書くのは state（最後に送った結果と ID）だけ。docker の CLI が root の設定を読むので、ProtectHome・ProtectSystem は掛けない
+TimeoutStartSec=60
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes

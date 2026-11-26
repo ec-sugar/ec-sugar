@@ -50,10 +50,14 @@
 #   sudo ec-sugar integrity [check | key | record | token] 内部の整合性チェック（ADR 0105）。check は今すぐチェックして署名した状態を書く（ec-sugar-integrity.timer が毎分）、
 #                                                 key は外部監視に置く公開鍵（PEM）を出す、record は基準の状態を今の状態で記録し直す（違いを調べて正しいと分かった時）、
 #                                                 token は外部監視が取得に付けるトークンを出す
+#   sudo ec-sugar usage [on | off]                使用状況の共有（ADR 0113）。引数なしは今の状態と、送る中身（そのままの JSON）を見せる。
+#                                                 送るのはランダムな ID・バージョン・OS・CPU の種類・店の数だけ（入れた時に 1 回と週 1 回）。on で始める（すぐ 1 回送る）、
+#                                                 off で止めて ID を消す（on にし直すと新しい ID）
 #
 # systemd から呼ぶもの: start・stop（ec-sugar.service）、update --auto（ec-sugar-update.timer）、firewall（ec-sugar-firewall.service。どの形でも）、
 #   watch（ec-sugar-watch.timer。どの形でも）、integrity check（ec-sugar-integrity.timer。毎分、どの形でも）、
-#   offsite run（ec-sugar-offsite.timer。10 分ごと。置き場を設定していなければ何もしない）
+#   offsite run（ec-sugar-offsite.timer。10 分ごと。置き場を設定していなければ何もしない）、
+#   usage send（ec-sugar-usage.timer。週 1 回。共有する設定の時だけ有効。設定が off なら何もしない）
 # 更新の道から呼ぶもの: ensure-env（取り出したバージョンが要る env を答えから補う）、install-units（新しく入った道具で unit を入れ直す）
 set -euo pipefail
 # 作るファイルの権限を決め打つ（流した人の umask が 077 でも、取り出したソースを DB・nginx・PHP のコンテナが読めるように）。
@@ -1043,6 +1047,7 @@ cmd_status() {
     ec_dc ps -a --format '{{.Service}}	{{.State}} {{.Health}}' 2> /dev/null | sed 's/^/    /' || printf '    （compose に聞けません）\n'
     status_firewall
     printf '  外への通信      %s（この 24 時間: %s。sudo ec-sugar egress）\n' "$(egress_mode_label "$(ec_egress_mode)")" "$(egress_counts)"
+    status_usage
     status_integrity
     last="$EC_STATE/last_update"
     if [ -r "$last" ]; then
@@ -1670,6 +1675,92 @@ status_integrity() {
     esac
 }
 
+# 使用状況の共有（ADR 0113。中身は deploy/lib/common.sh の ec_usage_*）
+#   usage          今の状態・送信先・次に送る時刻・最後の結果と、送る中身（そのままの JSON）を見せる（何も変えない）
+#   usage on       始める（設定ファイルに USAGE_SHARE=yes・新しい ID・timer を有効にする）。すぐ 1 回送る（install）
+#   usage off      止める（USAGE_SHARE=no・timer を止める・ID を消す）。止めたことは送らない
+#   usage send     ec-sugar-usage.timer から（週 1 回。weekly）。共有していなければ何もしない。送れなくても 0 で終わる
+cmd_usage() {
+    local sub="${1:-}"
+    [ $# -eq 0 ] || shift
+    [ $# -eq 0 ] || ec_die "知らない引数です: $1" "sudo ec-sugar usage・sudo ec-sugar usage on・sudo ec-sugar usage off"
+    ec_require_root
+    case "$sub" in
+        "")
+            ec_require_installed
+            usage_show
+            ;;
+        on)
+            ec_require_installed
+            usage_on
+            ;;
+        off)
+            ec_require_installed
+            usage_off
+            ;;
+        send)
+            # timer から: 入っていなければ黙って終わる（何も送らない）
+            [ -e "$EC_STATE/installed" ] || return 0
+            ec_usage_send weekly
+            ;;
+        *) ec_die "知らない使い方です: usage ${sub}" "sudo ec-sugar usage・sudo ec-sugar usage on・sudo ec-sugar usage off" ;;
+    esac
+}
+
+usage_show() {
+    local id last
+    if ec_usage_enabled; then
+        printf '使用状況の共有  する（入れた時に 1 回と週 1 回。止めるには sudo ec-sugar usage off）\n'
+        printf '  送信先        %s\n' "$(ec_usage_url)"
+        printf '  次に送る      %s\n' "$(next_run ec-sugar-usage.timer)"
+        last="$(ec_state_get usage_last 2> /dev/null || true)"
+        printf '  最後に送った  %s\n' "${last:-まだ}"
+        id="$(ec_usage_id 2> /dev/null || true)"
+        printf '  送る中身（このまま送ります。ほかには何も送りません。event は週 1 回の回なら weekly）:\n'
+        printf '    %s\n' "$(ec_usage_payload weekly "${id:-not-created-yet}")"
+    else
+        printf '使用状況の共有  しない（始めるには sudo ec-sugar usage on）\n'
+        printf '  送信先        %s\n' "$(ec_usage_url)"
+        printf '  始めると送る中身（id は on にした時に作るランダムな ID。ほかには何も送りません）:\n'
+        printf '    %s\n' "$(ec_usage_payload weekly "random-uuid-v4")"
+    fi
+    printf '  送らないもの  店の名前・ドメイン・店の ID・注文・お客さんの情報・設定の値。送信先は、台数を数える記録に IP アドレスを残しません（docs/install.md の「使用状況の共有」）\n'
+}
+
+usage_on() {
+    ec_lock
+    if ec_usage_enabled && ec_usage_id > /dev/null; then
+        ec_ok "もう共有しています（送る中身は sudo ec-sugar usage）"
+        return 0
+    fi
+    ec_kv_set "$EC_ANSWERS" USAGE_SHARE yes
+    ec_usage_id_ensure || ec_die "使用状況の共有の ID を作れません（$(ec_usage_id_file)）" "sudo ls -ld $EC_STATE で見る（root の 0750 のディレクトリ）"
+    systemctl enable --now ec-sugar-usage.timer > /dev/null 2>&1 ||
+        ec_warn "週 1 回のタイマー（ec-sugar-usage.timer）を有効にできませんでした（sudo ec-sugar install-units で unit を入れ直してから、もう一度 sudo ec-sugar usage on）"
+    ec_integrity_record if-ok answers:USAGE_SHARE || true
+    ec_ok "使用状況の共有を始めた（設定ファイルに USAGE_SHARE=yes。週 1 回。止めるには sudo ec-sugar usage off）"
+    ec_say "$(ec_usage_send install)"
+}
+
+usage_off() {
+    ec_lock
+    ec_kv_set "$EC_ANSWERS" USAGE_SHARE no
+    systemctl disable --now ec-sugar-usage.timer > /dev/null 2>&1 || true
+    ec_usage_id_drop
+    rm -f "$EC_STATE/usage_last"
+    ec_integrity_record if-ok answers:USAGE_SHARE || true
+    ec_ok "使用状況の共有を止めた（設定ファイルに USAGE_SHARE=no。ID を消した。始め直すには sudo ec-sugar usage on。新しい ID になる）"
+}
+
+# 使用状況の共有の 1 行（status から）
+status_usage() {
+    if ec_usage_enabled; then
+        printf '  使用状況の共有  する（ランダムな ID・バージョン・OS・CPU の種類・店の数だけ、週 1 回。送る中身は sudo ec-sugar usage、止めるには sudo ec-sugar usage off）\n'
+    else
+        printf '  使用状況の共有  しない（始めるには sudo ec-sugar usage on。送る中身は sudo ec-sugar usage で見られる）\n'
+    fi
+}
+
 main() {
     local cmd="${1:-help}"
     [ $# -eq 0 ] || shift
@@ -1695,6 +1786,7 @@ main() {
         app-key) cmd_app_key "$@" ;;
         integrity) cmd_integrity "$@" ;;
         offsite) cmd_offsite "$@" ;;
+        usage) cmd_usage "$@" ;;
         check-front) cmd_check_front "$@" ;;
         ensure-env) cmd_ensure_env "$@" ;;
         install-units) cmd_install_units "$@" ;;

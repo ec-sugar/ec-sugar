@@ -45,7 +45,7 @@ final class InstalledPackagesTest extends TestCase
         // 核のバージョンの範囲の外
         $this->assertSame(['plugin', false, false, null], [$banner->kind, $banner->compatible, $banner->firstParty, $banner->problem]);
         $this->assertSame([true, false], [$fake->compatible, $fake->firstParty]);
-        $this->assertSame('1.0.0', Version::CORE);
+        $this->assertSame('1.1.0', Version::CORE);
     }
 
     /**

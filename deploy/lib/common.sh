@@ -4288,6 +4288,7 @@ ec_install_tools() {
     systemctl enable --now ec-sugar-watch.timer > /dev/null 2>&1 || ec_warn "定期の処理の監視（ec-sugar-watch.timer）を入れられませんでした（sudo systemctl status ec-sugar-watch.timer で原因を見る）"
     ec_install_integrity_units "$from"
     ec_install_offsite_units "$from"
+    ec_install_usage_units "$from"
 }
 
 # 中の照らし（ADR 0105）の unit を入れて、毎分のタイマーを有効にする。入れる道具に unit が無い（この仕組みの前のバージョンへ
@@ -4309,6 +4310,183 @@ ec_install_integrity_units() {
         rm -f "$EC_UNIT_DIR/ec-sugar-integrity.timer" "$EC_UNIT_DIR/ec-sugar-integrity.service"
         systemctl daemon-reload
         ec_warn "入れたバージョンには内部の整合性チェックがないので、ec-sugar-integrity.timer を止めました（外部監視は「状態が古い」と通知します）"
+    fi
+    return 0
+}
+
+# ---------- 使用状況の共有（ADR 0113） ----------
+# 入れた人が選んだ時だけ（設定ファイルの USAGE_SHARE=yes。インストーラーが既定「はい」で聞く。端末も設定ファイルの値も無ければ no）、
+# 開発元へ「入れた時に 1 回と、そのあと週 1 回」、次の項目だけを JSON で送る:
+#   id          このサーバーのために作ったランダムな ID（UUID v4。ホスト名・ドメイン・IP アドレスからは作らない）
+#   version     EC-SUGAR のバージョン（release チャネルは 1.0.0 の形、source チャネルは git のコミットの短い ID）
+#   event       install（入れた時と、sudo ec-sugar usage on で共有を始めた時）か weekly（週 1 回。ec-sugar-usage.timer）
+#   os          /etc/os-release の ID（ubuntu など）
+#   os_version  /etc/os-release の VERSION_ID（24.04 など）
+#   arch        CPU の種類（dpkg の amd64・arm64）
+#   shops       このサーバーの店の数（中央の DB の tenants の行の数。0〜100000 の整数。読めなければ null）
+# 決まり:
+#   - 店の名前・ドメイン・店の ID・注文・お客さん・設定の値は読みもしない。店は数だけを数える。
+#     どの値も決まった形を確認してから JSON に入れる（形が違えば unknown・店の数は null）
+#   - 送るのはホストの root の curl だけ（コンテナを通らないので、アプリの送信用プロキシ〔ADR 0102〕の許す一覧には足さない）。
+#     https だけ・行き先を変える応答（3xx）は追わない・10 秒で切る・root の ~/.curlrc を読まない
+#   - 送れなくても、インストールと timer を落とさない（標準出力に 1 行。timer なら journal に残る。いつも 0 で終わる）
+#   - ID は root だけが読める state/usage_id（0600）。off にしたら消し、on にし直したら新しい ID
+#   - 前からあるサーバーは、更新しても勝手に on にしない（設定ファイルに USAGE_SHARE が無ければ off。unit は入れるが timer は有効にしない）
+#   - 隔離した複製環境（restore --isolated）からは送らない
+EC_USAGE_URL_DEFAULT=https://ec-sugar.jp/usage/v1
+# 1 回の送信を待つ秒数の上限
+EC_USAGE_TIMEOUT=10
+# OS の名前とバージョンを読むファイル（確認のスクリプトだけが一時のファイルに替える）
+EC_USAGE_OS_RELEASE=/etc/os-release
+
+ec_usage_enabled() { [ "$(ec_answer USAGE_SHARE 2> /dev/null || true)" = yes ]; }
+ec_usage_id_file() { printf '%s/usage_id' "$EC_STATE"; }
+ec_usage_valid_id() { [[ "$1" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; }
+# 送信先（既定は開発元。確認のために環境変数 EC_SUGAR_USAGE_URL で替えられるが、https のほかは断る）
+ec_usage_url() { printf '%s' "${EC_SUGAR_USAGE_URL:-$EC_USAGE_URL_DEFAULT}"; }
+ec_usage_valid_url() { [[ "$1" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$ ]]; }
+
+# 新しい ID（UUID v4）を出す。乱数は /dev/urandom から（ホストの名前・時刻・MAC アドレスを混ぜない）
+ec_usage_new_id() {
+    local hex
+    hex="$(od -An -tx1 -N16 /dev/urandom 2> /dev/null | tr -d ' \n')"
+    [[ "$hex" =~ ^[0-9a-f]{32}$ ]] || return 1
+    # 13 桁目にバージョンの 4、17 桁目に変種（8・9・a・b）を置く
+    printf '%s-%s-4%s-%x%s-%s' "${hex:0:8}" "${hex:8:4}" "${hex:13:3}" $(((0x${hex:16:1} & 3) | 8)) "${hex:17:3}" "${hex:20:12}"
+}
+# 今の ID を出す（無い・形が違えば 1）
+ec_usage_id() {
+    local id="" file
+    file="$(ec_usage_id_file)"
+    [ -r "$file" ] || return 1
+    IFS= read -r id < "$file" || true
+    ec_usage_valid_id "$id" || return 1
+    printf '%s' "$id"
+}
+# ID が無ければ作る（root だけが読める 0600。同じディレクトリの仮のファイルに書いてから入れ替える）
+ec_usage_id_ensure() {
+    local id file tmp
+    ec_usage_id > /dev/null && return 0
+    id="$(ec_usage_new_id)" || return 1
+    file="$(ec_usage_id_file)"
+    tmp="$(dirname "$file")/.usage_id.tmp.$$"
+    if (umask 077 && printf '%s\n' "$id" > "$tmp") && chmod 0600 "$tmp" && mv -f "$tmp" "$file"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+ec_usage_id_drop() { rm -f "$(ec_usage_id_file)"; }
+
+# 送るバージョン。release チャネルは入っているタグ（頭の v を外す）、ほかは入っているコミットの頭の 12 桁
+ec_usage_version() {
+    local v c
+    if [ "$(ec_channel 2> /dev/null || true)" = release ]; then
+        v="$(ec_state_get current_version 2> /dev/null || true)"
+        v="${v#v}"
+        if [[ "$v" =~ ^[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,40})?$ ]]; then
+            printf '%s' "$v"
+            return 0
+        fi
+    fi
+    c="$(ec_state_get current_commit 2> /dev/null || true)"
+    if [[ "$c" =~ ^[0-9a-f]{40}$ ]]; then printf '%s' "${c:0:12}"; else printf unknown; fi
+}
+# OS の項目（$1 は ID か VERSION_ID）。英小文字・数字と . _ - の 32 文字まで
+ec_usage_os() {
+    local v
+    v="$(ec_kv_get "$EC_USAGE_OS_RELEASE" "$1" 2> /dev/null || true)"
+    if [[ "$v" =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]]; then printf '%s' "$v"; else printf unknown; fi
+}
+ec_usage_arch() {
+    local a
+    a="$(dpkg --print-architecture 2> /dev/null || uname -m 2> /dev/null || true)"
+    if [[ "$a" =~ ^[a-z0-9_]{1,16}$ ]]; then printf '%s' "$a"; else printf unknown; fi
+}
+# 店の数の上限（受け取る側も同じ上限で確認する）
+EC_USAGE_MAX_SHOPS=100000
+# このサーバーの店の数。中央の DB の tenants の行の数だけを読む（名前・ドメイン・ID は読まない）。DB に届かない・形が違えば null。
+# 上限で切る。標準入力は渡さない（docker compose exec が読み込む）
+ec_usage_shops() {
+    local n
+    n="$(ec_dc exec -T db psql -U ec -d ec_central -Atc 'SELECT count(*) FROM tenants' < /dev/null 2> /dev/null)" || n=""
+    if [[ "$n" =~ ^[0-9]{1,12}$ ]]; then
+        n=$((10#$n))
+        [ "$n" -le "$EC_USAGE_MAX_SHOPS" ] || n="$EC_USAGE_MAX_SHOPS"
+        printf '%s' "$n"
+    else
+        printf null
+    fi
+}
+# 送る JSON（1 行）。$1 install か weekly、$2 ID（見せるだけの時は見本の値を渡す。送る時は ec_usage_send が本物の ID を渡す）。
+# 項目はここに書いたものだけ。値は上の関数が決まった形に絞ってあるので、引用符と \ は入らない（shops は数か null で、引用符で囲まない）
+ec_usage_payload() {
+    local event="$1" id="$2" shops
+    case "$event" in install | weekly) ;; *) return 1 ;; esac
+    [[ "$id" =~ ^[0-9a-z-]{1,64}$ ]] || return 1
+    shops="$(ec_usage_shops)"
+    [[ "$shops" =~ ^(null|0|[1-9][0-9]{0,5})$ ]] || shops=null
+    printf '{"id":"%s","version":"%s","event":"%s","os":"%s","os_version":"%s","arch":"%s","shops":%s}' \
+        "$id" "$(ec_usage_version)" "$event" "$(ec_usage_os ID)" "$(ec_usage_os VERSION_ID)" "$(ec_usage_arch)" "$shops"
+}
+
+# 1 回送る。$1 install か weekly。共有していなければ何もせず、何も出さない。どんな時も 0 で終わる（失敗はインストールも timer も落とさない）。
+# 結果は state/usage_last（「時刻 event ok」か「時刻 event failed 応答の番号」）と、標準出力の 1 行
+ec_usage_send() {
+    local event="$1" url body id code=""
+    ec_usage_enabled || return 0
+    ! ec_is_isolated || return 0
+    if ! ec_usage_id_ensure || ! id="$(ec_usage_id)"; then
+        printf '使用状況の共有: ID を用意できないので送りませんでした（%s）\n' "$(ec_usage_id_file)"
+        return 0
+    fi
+    url="$(ec_usage_url)"
+    if ! ec_usage_valid_url "$url"; then
+        printf '使用状況の共有: 送信先が https の URL でないので送りませんでした\n'
+        return 0
+    fi
+    if ! body="$(ec_usage_payload "$event" "$id")"; then
+        printf '使用状況の共有: 送る中身を作れませんでした（%s）\n' "$event"
+        return 0
+    fi
+    # -q は先頭に（root の ~/.curlrc を読まない）。本文は標準入力から（引数に出さない）。応答の本文は読まない
+    code="$(printf '%s' "$body" | curl -q -sS --proto '=https' --connect-timeout 5 --max-time "$EC_USAGE_TIMEOUT" -o /dev/null -w '%{http_code}' \
+        -A ec-sugar-usage/1 -H 'Content-Type: application/json' --data-binary @- "$url" 2> /dev/null)" || true
+    code="$(ec_code_norm "$code")"
+    if [[ "$code" =~ ^2[0-9]{2}$ ]]; then
+        ec_state_put usage_last "$(ec_now) $event ok" 2> /dev/null || true
+        printf '使用状況の共有: 送りました（%s）\n' "$event"
+    else
+        ec_state_put usage_last "$(ec_now) $event failed $code" 2> /dev/null || true
+        printf '使用状況の共有: 送れませんでした（%s、応答 %s）。次の回に送ります\n' "$event" "$code"
+    fi
+    return 0
+}
+
+# 週 1 回の unit（ec-sugar-usage.service・.timer）を入れる。timer を有効にするのは共有する設定（USAGE_SHARE=yes）の時だけで、
+# ほかは止めておく（前からあるサーバーは、更新しても勝手に動き出さない）。共有するのに ID が無ければ作る。
+# 入れる道具に unit が無い（この仕組みの前のバージョンへ更新・ロールバックした）なら、timer を止めて unit を消す
+ec_install_usage_units() {
+    local from="$1" f
+    if [ -f "$from/systemd/ec-sugar-usage.service" ] && [ -f "$from/systemd/ec-sugar-usage.timer" ]; then
+        for f in ec-sugar-usage.service ec-sugar-usage.timer; do
+            ec_plain_file "$from/systemd/$f" "$from" || ec_die "$from/systemd/$f がふつうのファイルでないか、ディレクトリの外を指すリンクです（運用のスクリプトを置き換えない）"
+            install -m 0644 -o root -g root "$from/systemd/$f" "$EC_UNIT_DIR/.$f.new"
+            mv -f "$EC_UNIT_DIR/.$f.new" "$EC_UNIT_DIR/$f"
+        done
+        systemctl daemon-reload
+        if ec_usage_enabled; then
+            ec_usage_id_ensure || ec_warn "使用状況の共有の ID を作れませんでした（$(ec_usage_id_file)。送る回は送らずに 1 行残します）"
+            systemctl enable --now ec-sugar-usage.timer > /dev/null 2>&1 || ec_warn "使用状況の共有のタイマー（ec-sugar-usage.timer）を入れられませんでした（sudo systemctl status ec-sugar-usage.timer で原因を見る）"
+        else
+            systemctl disable --now ec-sugar-usage.timer > /dev/null 2>&1 || true
+        fi
+        return 0
+    fi
+    if [ -e "$EC_UNIT_DIR/ec-sugar-usage.timer" ] || [ -e "$EC_UNIT_DIR/ec-sugar-usage.service" ]; then
+        systemctl disable --now ec-sugar-usage.timer > /dev/null 2>&1 || true
+        rm -f "$EC_UNIT_DIR/ec-sugar-usage.timer" "$EC_UNIT_DIR/ec-sugar-usage.service"
+        systemctl daemon-reload
     fi
     return 0
 }
@@ -5175,7 +5353,7 @@ EC_INTEGRITY_REPORT_RETRY_MIN=10
 # 公開の JSON に出してよい困りごとの種類
 EC_INTEGRITY_KINDS="code config container docker expected file image lock service"
 # 運用の道具が入れる unit（これだけは install-units が作り直す。ほかの ec-sugar* の unit・drop-in は前の控えのまま）
-EC_INTEGRITY_OWN_UNITS="ec-sugar.service ec-sugar-update.service ec-sugar-update.timer ec-sugar-backup.service ec-sugar-backup.timer ec-sugar-firewall.service ec-sugar-watch.service ec-sugar-watch.timer ec-sugar-integrity.service ec-sugar-integrity.timer ec-sugar-offsite.service ec-sugar-offsite.timer ec-sugar-backup.timer.d-10-timezone.conf"
+EC_INTEGRITY_OWN_UNITS="ec-sugar.service ec-sugar-update.service ec-sugar-update.timer ec-sugar-backup.service ec-sugar-backup.timer ec-sugar-firewall.service ec-sugar-watch.service ec-sugar-watch.timer ec-sugar-integrity.service ec-sugar-integrity.timer ec-sugar-offsite.service ec-sugar-offsite.timer ec-sugar-usage.service ec-sugar-usage.timer ec-sugar-backup.timer.d-10-timezone.conf"
 # コードの木（サービスごと。イメージの中の読み取り専用の所。-xdev で書ける差し込み〔storage〕と tmpfs を除く）
 EC_INTEGRITY_CODE_DIRS_app="/var/www/html /usr/local/bin /usr/local/sbin /usr/local/lib/php /usr/local/etc"
 EC_INTEGRITY_CODE_DIRS_web="/var/www/html/public /usr/sbin /usr/lib/nginx /etc/nginx /docker-entrypoint.sh /docker-entrypoint.d"
