@@ -58,7 +58,7 @@
         "laravel/tinker": "^3.0",
         "stancl/tenancy": "^3.10",
         "stripe/stripe-php": "23.0.0",
-        "symfony/html-sanitizer": "8.1.11"
+        "symfony/html-sanitizer": "8.1.12"
     },
     "require-dev": {
         "brianium/paratest": "^7.20",

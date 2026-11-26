@@ -37,7 +37,7 @@ JavaScript と同じ考え方（ADR 0037 の基準と、conventions.md 6 の「�
 
 | 部品 | 使う所 | 何のために | ライセンス | 依存 | 確認したこと | 入れた日 |
 |---|---|---|---|---|---|---|
-| symfony/html-sanitizer | コア（`App\Core\Section\SectionHtml`） | カスタムセクション（ADR 0041）の HTML を、保存のときと描くときに決まったタグと属性だけに整える。自分で正規表現で整えない | MIT | 足したものは無し（前提の league/uri と ext-dom はもう入っている）。PHP の HTML5 の解析器（`Dom\HTMLDocument`）で読む | 8.1.10（10-20 の版。公開から 10 日）を `8.1.10` に固定。Symfony の公式の部品（手入れが続き、セキュリティの通知の仕組みがある）、`composer audit` 0 件、roave/security-advisories を通る。中を読んで、表に無い要素を既定で中身ごと消すこと・属性の値を確認する口（`AttributeSanitizerInterface`）・解析器を差し替える口（`ParserInterface`）があることを確認した。`<head>` の要素（`style`・`meta`・`link`・`title`）は本文の設定から外される作りなので、既定を「消す」のまま使う（「タグだけ外す」を既定にすると `style` の中の文が文字で出る） | 2026-10-30 |
+| symfony/html-sanitizer | コア（`App\Core\Section\SectionHtml`） | カスタムセクション（ADR 0041）の HTML を、保存のときと描くときに決まったタグと属性だけに整える。自分で正規表現で整えない | MIT | 足したものは無し（前提の league/uri と ext-dom はもう入っている）。PHP の HTML5 の解析器（`Dom\HTMLDocument`）で読む | 8.1.10（10-20 の版。公開から 10 日）を `8.1.10` に固定（2026-11-26 に `8.1.12`。Symfony のセキュリティの修正。固定のままだと composer が直った版へ上げられないので、修正が出たらこの行と composer.json を一緒に上げる）。Symfony の公式の部品（手入れが続き、セキュリティの通知の仕組みがある）、`composer audit` 0 件、roave/security-advisories を通る。中を読んで、表に無い要素を既定で中身ごと消すこと・属性の値を確認する口（`AttributeSanitizerInterface`）・解析器を差し替える口（`ParserInterface`）があることを確認した。`<head>` の要素（`style`・`meta`・`link`・`title`）は本文の設定から外される作りなので、既定を「消す」のまま使う（「タグだけ外す」を既定にすると `style` の中の文が文字で出る） | 2026-10-30 |
 
 ## 開発とテストだけの PHP の部品（composer の require-dev）
 
