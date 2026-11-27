@@ -401,8 +401,13 @@ cmd_update() {
         # 錠はこの処理が持ったまま（EC_SUGAR_LOCK_HELD）。中の照らしの控え直しは、下でこの更新が作り直した分をまとめて 1 回で
         EC_SUGAR_LOCK_HELD=1 EC_SUGAR_INTEGRITY_RECORD=skip "$EC_BIN" install-units || ec_warn "新しいツールで unit を入れ直せませんでした（sudo ec-sugar install-units を実行する）"
         # 中の照らし: この更新が作り直したもの（イメージと設定の指紋・コードの木・確かめたコミットの compose・道具・決まった unit・
-        # イメージの名前と新しく足された設定の名前）だけを控え直す。ほかは前の控えのまま
-        ec_integrity_record always service code compose tools units settings-new env:EC_SUGAR_IMAGE env:SUGAR_EC_IMAGE || true
+        # イメージの名前と新しく足された設定の名前）だけを控え直す。ほかは前の控えのまま。
+        # 控え直すのは**新しく入った道具**に頼む。この後に毎分照らすのは新しい道具なので、照らし方を直したバージョンへの更新で、
+        # 前の道具の照らし方で控えると、更新の直後から要対応になる。新しい道具がこの口を持たない
+        # （口の無いバージョンへ更新した）時は、この道具で控える
+        if ! EC_SUGAR_LOCK_HELD=1 "$EC_BIN" integrity record-update 2> /dev/null; then
+            ec_integrity_record always service code compose tools units settings-new env:EC_SUGAR_IMAGE env:SUGAR_EC_IMAGE || true
+        fi
         ec_prune_images
         # すでにある Web サーバーの後ろに置く形は、前の Web サーバーの設定も確かめる（通らなくても戻さない。status に出す）
         if [ "$(ec_front)" = proxy ]; then
@@ -1636,6 +1641,12 @@ cmd_integrity() {
             # 鍵を放してから照らし、様子を新しくする
             exec 9>&-
             ec_integrity_check > /dev/null || ec_warn "状態を書けませんでした（sudo ec-sugar integrity check で理由を見る）"
+            ;;
+        record-update)
+            # 更新の中から、新しく入った道具として呼ばれる口（cmd_update。錠は更新が持ったまま）。この更新が作り直したものだけを、この道具の照らし方で控え直す
+            [ "${EC_SUGAR_LOCK_HELD:-}" = 1 ] || ec_die "更新の中から呼ぶ口です" "手で控え直すのは sudo ec-sugar integrity record"
+            ec_require_installed
+            ec_integrity_record always service code compose tools units settings-new env:EC_SUGAR_IMAGE env:SUGAR_EC_IMAGE || ec_die "基準の状態を記録し直せませんでした（上の行）"
             ;;
         token)
             ec_require_installed

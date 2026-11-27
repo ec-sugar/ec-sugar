@@ -5453,7 +5453,7 @@ ec_integrity_busy() {
 # PortBindings・Tmpfs と Config の User・Entrypoint・Cmd と、差し込み（種類・元・先・書けるか。並べ替えてから）の sha256。名札は偽れるので、
 # 照らすのは名札でなく、この指紋とイメージ ID。Docker に聞けなければ 1
 ec_integrity_containers() {
-    local ids out fmt id running image project service oneoff cname cfg mounts m sorted fp
+    local ids out fmt id running image project service oneoff cname cfg mounts m sorted fp legacy
     ids="$(docker ps -aq --no-trunc 2> /dev/null)" || return 1
     [ -n "$ids" ] || return 0
     fmt=$'{{.Id}}\t{{.State.Running}}\t{{.Image}}\t{{index .Config.Labels "com.docker.compose.project"}}\t{{index .Config.Labels "com.docker.compose.service"}}\t{{index .Config.Labels "com.docker.compose.oneoff"}}\t{{.Name}}\t'
@@ -5467,10 +5467,21 @@ ec_integrity_containers() {
     [ -n "$out" ] || return 1
     while IFS=$'\t' read -r id running image project service oneoff cname cfg mounts; do
         [ -n "$id" ] || continue
-        # 差し込みの並びは決まっていない（Docker の中の map）ので、並べ替えてから指紋に入れる
-        sorted="$(printf '%s' "$mounts" | tr ';' '\n' | LC_ALL=C sort | tr '\n' ';')"
+        # 差し込みの並びは決まっていない（Docker の中の map）ので、並べ替えてから指紋に入れる。
+        # イメージを差し込む形（type: image）の元の道筋（/var/lib/docker/rootfs/overlayfs/…）は、コンテナを作り直すたびに変わる
+        # （web は起動のたびに作り直す。cmd_start）ので入れない。どのイメージを差し込むかは宣言（HostConfig.Mounts）で照らす
+        sorted="$(printf '%s' "$mounts" | tr ';' '\n' | awk -F, -v OFS=, '$1 == "image" { $2 = "" } { print }' | LC_ALL=C sort | tr '\n' ';')"
+        legacy=""
+        # どのイメージを差し込むかは宣言（HostConfig.Mounts）にだけある。宣言の無いコンテナではこの鍵が無く、まとめての inspect の書式に入れると
+        # そこで止まる（web 以外の全部が service:missing になる）ので、イメージを差し込むコンテナだけ 1 つずつ聞く
+        if [[ ";$mounts" == *";image,"* ]]; then
+            # 前の照らし方（1.1.1 まで）の指紋も出す: 元の道筋を入れ、宣言を入れない。前の道具が書いた控えを読み替えるため（ec_integrity_scan）
+            legacy="$(printf '%s\n%s\n' "$cfg" "$(printf '%s' "$mounts" | tr ';' '\n' | LC_ALL=C sort | tr '\n' ';')" | ec_integrity_sha_in)" || legacy=unreadable
+            cfg="$cfg $(docker inspect --format '{{json .HostConfig.Mounts}}' "$id" 2> /dev/null || printf unreadable)"
+        fi
         fp="$(printf '%s\n%s\n' "$cfg" "$sorted" | ec_integrity_sha_in)" || fp=unreadable
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$running" "$image" "$project" "$service" "$oneoff" "${cname#/}" "$fp"
+        # 9 列目は前の照らし方の指紋（イメージを差し込まないコンテナでは同じ）
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$running" "$image" "$project" "$service" "$oneoff" "${cname#/}" "$fp" "${legacy:-$fp}"
     done <<< "$out"
 }
 
@@ -5593,11 +5604,11 @@ ec_integrity_code_targets() {
 # 今の姿（控えの本体）を出す。並びは決まった順。$1 が code ならコードの木も（重いので、控える時と 10 分ごとの照らしだけ）。
 # Docker に聞けない・compose の置き場を決められない・塩が無ければ 1
 ec_integrity_snapshot() {
-    local with_code="${1:-}" listing hashes settings id running image project service oneoff cname cfg lines=() h
+    local with_code="${1:-}" listing hashes settings id running image project service oneoff cname cfg legacy lines=() h
     listing="$(ec_integrity_containers)" || return 1
     hashes="$(ec_integrity_hashes)" || return 1
     settings="$(ec_integrity_settings)" || return 1
-    while IFS=$'\t' read -r id running image project service oneoff cname cfg; do
+    while IFS=$'\t' read -r id running image project service oneoff cname cfg legacy; do
         [ -n "$id" ] && [ "$project" = "$EC_PROJECT" ] && [ "$oneoff" != True ] || continue
         ec_integrity_valid_service "$service" && ec_integrity_valid_image "$image" && ec_integrity_valid_hex "$cfg" || continue
         lines+=("service $service $image $cfg")
@@ -5781,9 +5792,9 @@ ec_integrity_code_problems() {
 # 控えと照らし、困りごとの名前を 1 行ずつ出す（決まった順・重なりなし・上限まで）。無ければ何も出さない。
 # compose の外の、許していないコンテナの詳しいこと（名前・イメージ ID・設定の指紋）は root だけの extra に書く（sudo ec-sugar integrity check で出す）
 ec_integrity_scan() {
-    local expected="$EC_INTEGRITY_DIR/expected" kind name value cfg listing hashes settings id running image project service oneoff cname n extras=""
+    local expected="$EC_INTEGRITY_DIR/expected" kind name value cfg legacy listing hashes settings id running image project service oneoff cname n extras=""
     local -A want_img=() want_cfg=() want_count=() run_count=() want_item=() seen_item=()
-    local problems=()
+    local problems=() migrate=()
     if [ ! -r "$expected" ] || ! grep -qx 'format=1' "$expected"; then
         printf 'expected:missing\n'
         return 0
@@ -5801,13 +5812,20 @@ ec_integrity_scan() {
     if ! listing="$(ec_integrity_containers)"; then
         problems+=(docker:unreachable)
     else
-        while IFS=$'\t' read -r id running image project service oneoff cname cfg; do
+        while IFS=$'\t' read -r id running image project service oneoff cname cfg legacy; do
             [ -n "$id" ] && [ "$running" = true ] || continue
             # 控えにあるサービスの名札で、一度きりでないものだけを数える。名札は偽れるので、イメージ ID と設定の指紋も控えと照らす。
             # 一度きりのもの（マイグレーション・バックアップ）は錠を持っている間だけで、照らすのは錠の無い時なので、見えたら外のものと同じ
             if [ "$project" = "$EC_PROJECT" ] && [ "$oneoff" != True ] && ec_integrity_valid_service "$service" && [ -n "${want_count[$service]:-}" ]; then
                 [[ "${want_img[$service]} " == *" $image "* ]] || problems+=("image:$service")
-                [[ "${want_cfg[$service]} " == *" $cfg "* ]] || problems+=("config:$service")
+                if [[ "${want_cfg[$service]} " == *" $cfg "* ]]; then
+                    :
+                elif [ "${legacy:-$cfg}" != "$cfg" ] && [[ "${want_cfg[$service]} " == *" $legacy "* ]]; then
+                    # 前の道具（1.1.1 まで）の照らし方で書いた控え。前の照らし方で今と同じなら同じ状態なので、ほかに困りごとが無ければ下で読み替える
+                    migrate+=("$service $image $legacy $cfg")
+                else
+                    problems+=("config:$service")
+                fi
                 run_count[$service]=$((${run_count[$service]:-0} + 1))
             elif ! ec_integrity_allowed "$cname" "$image" "$cfg"; then
                 # compose の外で動いている、許していないコンテナ（名札に関係なく）
@@ -5840,12 +5858,28 @@ ec_integrity_scan() {
     for name in "${!want_item[@]}"; do
         [ -n "${seen_item[$name]:-}" ] || problems+=("$(ec_integrity_item_problem "${name%% *}" "${name#* }")")
     done
+    # 前の照らし方の控えの読み替えは、ほかに困りごとが無い時だけ（違いのある時に黙って控えを書き換えない）。同じ状態の書き方を変えるだけなので世代は上げない
+    if [ "${#problems[@]}" -eq 0 ] && [ "${#migrate[@]}" -gt 0 ]; then
+        ec_integrity_migrate_services "${migrate[@]}" || true
+    fi
     [ "${#problems[@]}" -gt 0 ] || return 0
     for name in "${problems[@]}"; do
         ! ec_integrity_valid_problem "$name" || printf '%s\n' "$name"
     # 上限で切るのは awk で（head は先に閉じて、pipefail の下で sort を SIGPIPE で落とす）
     done | LC_ALL=C sort -u | awk -v n="$EC_INTEGRITY_MAX_PROBLEMS" 'NR <= n'
 }
+# 前の照らし方で書いた控えのサービスの行（「service <名前> <イメージ ID> <前の指紋>」）を、今の照らし方の指紋に書き換える。
+# 引数は「<名前> <イメージ ID> <前の指紋> <今の指紋>」。世代・ほかの行はそのまま。書けなければ 1（次の照らしでまた読み替える）
+ec_integrity_migrate_services() {
+    local expected="$EC_INTEGRITY_DIR/expected" tmp="$EC_INTEGRITY_DIR/.expected.migrate.$$" m pairs=""
+    for m in "$@"; do pairs="${pairs}${m}"$'\n'; done
+    if ! (umask 077 && awk -v pairs="$pairs" 'BEGIN { n = split(pairs, rows, "\n"); for (i = 1; i <= n; i++) if (split(rows[i], f, " ") == 4) to["service " f[1] " " f[2] " " f[3]] = "service " f[1] " " f[2] " " f[4] }
+        ($0 in to) { print to[$0]; next } { print }' "$expected" > "$tmp") || ! chmod 0600 "$tmp" || ! mv -f "$tmp" "$expected"; then
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
 # 控えの項目（ファイルか設定）の困りごとの名前。設定は file:env-<名前>・file:answers-<名前>（小文字）
 ec_integrity_item_problem() {
     if [ "$1" = setting ]; then
@@ -5905,8 +5939,8 @@ ec_integrity_last_problems() {
 # 外の見張りが取りに来たか（web の nginx が、合い言葉の付いた取得だけを書く記録を docker exec で見て、時刻を root の置き場に残し、記録を空にする）。
 # $1 コンテナの一覧（ec_integrity_containers の出力）。web が動いていない・見られなければ何もしない。答えは大きさの上限つきで読む
 ec_integrity_poll_sentinel() {
-    local listing="$1" id running image project service oneoff cname cfg web="" at now last
-    while IFS=$'\t' read -r id running image project service oneoff cname cfg; do
+    local listing="$1" id running image project service oneoff cname cfg legacy web="" at now last
+    while IFS=$'\t' read -r id running image project service oneoff cname cfg legacy; do
         if [ "$running" = true ] && [ "$project" = "$EC_PROJECT" ] && [ "$service" = web ] && [ "$oneoff" != True ]; then web="$id"; fi
     done <<< "$listing"
     [ -n "$web" ] || return 0

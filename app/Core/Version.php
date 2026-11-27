@@ -10,5 +10,5 @@ namespace App\Core;
  */
 final class Version
 {
-    public const string CORE = '1.1.1';
+    public const string CORE = '1.1.2';
 }

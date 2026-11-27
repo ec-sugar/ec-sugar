@@ -98,7 +98,8 @@ healthy_table() {
         row c-app true "$(img 1)" ec-sugar app False /ec-sugar-app-1 'false null ["ALL"] cfg-app' "$(mounts app)"
         row c-queue true "$(img 1)" ec-sugar queue False /ec-sugar-queue-1 'false null ["ALL"] cfg-queue' "$(mounts queue)"
         row c-scheduler true "$(img 1)" ec-sugar scheduler False /ec-sugar-scheduler-1 'false null ["ALL"] cfg-scheduler' "$(mounts scheduler)"
-        row c-web true "$(img 2)" ec-sugar web False /ec-sugar-web-1 'false null ["ALL"] cfg-web' "$(mounts web)"
+        # web はイメージの public/ を差し込む（type: image）。元の道筋（overlayfs）は作り直すたびに変わる
+        row c-web true "$(img 2)" ec-sugar web False /ec-sugar-web-1 'false null ["ALL"] cfg-web' "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/aaa,/var/www/html/public,false;"
         row c-caddy true "$(img 3)" ec-sugar caddy False /ec-sugar-caddy-1 'false null ["ALL"] cfg-caddy' "$(mounts caddy)"
         row c-db true "$(img 4)" ec-sugar db False /ec-sugar-db-1 'false null ["ALL"] cfg-db' "$(mounts db)"
         row c-redis true "$(img 5)" ec-sugar redis False /ec-sugar-redis-1 'false null ["ALL"] cfg-redis' "$(mounts redis)"
@@ -119,7 +120,18 @@ docker() {
     [ "$FAKE_DOCKER_FAIL" = 0 ] || return 1
     case "$1" in
         ps) cut -f1 "$work/containers" ;;
-        inspect) cat "$work/containers" ;;
+        inspect)
+            # 1 つずつの宣言の問い（イメージを差し込むコンテナだけ。common.sh）は $work/declared.<ID>、無ければ決まった値。
+            # まとめての問いは、本物と同じく宣言の鍵を書式に入れていたら断る（宣言の無いコンテナで止まるため）
+            if [ "$2" = --format ] && [ "$3" = '{{json .HostConfig.Mounts}}' ]; then
+                cat "$work/declared.$4" 2> /dev/null || printf '[{"Type":"image","Source":"ec-sugar:x","Target":"/var/www/html/public"}]'
+            elif [[ "$3" == *HostConfig.Mounts* ]]; then
+                echo 'map has no entry for key "Mounts"' >&2
+                return 1
+            else
+                cat "$work/containers"
+            fi
+            ;;
         exec)
             id="$2"
             script="${*: -1}"
@@ -220,6 +232,53 @@ expect_problem config:web config "差し込みを足した"
 healthy_table
 set_col app 9 "bind,/srv/x,/etc/x,false;volume,/var/lib/docker/volumes/ec-sugar_app/_data,/data,true;"
 expect_ok "差し込みの並びが違うだけなら同じ指紋"
+healthy_table
+set_col web 9 "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/bbb,/var/www/html/public,false;"
+expect_ok "web を作り直してイメージの差し込みの元の道筋（overlayfs）が変わっただけなら同じ指紋（起動のたびに web を作り直すため）"
+healthy_table
+set_col web 9 "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/aaa,/var/www/html,false;"
+expect_problem config:web config "イメージの差し込み先を変えた"
+healthy_table
+set_col web 9 "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/aaa,/var/www/html/public,true;"
+expect_problem config:web config "イメージの差し込みを書ける形にした"
+healthy_table
+printf '%s' '[{"Type":"image","Source":"other:latest","Target":"/var/www/html/public"}]' > "$work/declared.c-web"
+expect_problem config:web config "差し込むイメージ（宣言の HostConfig.Mounts）を替えた"
+rm -f "$work/declared.c-web"
+healthy_table
+expect_ok "イメージを差し込まないコンテナ（宣言の無いもの）も、まとめての問いで全部数える（service:missing にならない）"
+# 前の照らし方（1.1.1 まで）の道具が書いた控えの読み替え。web の控えの行を、前の照らし方の指紋（一覧の 9 列目）にして試す
+legacy_expected() {
+    local legacy now
+    legacy="$(ec_integrity_containers | awk -F '\t' '$5 == "web" {print $9}')"
+    now="$(ec_integrity_containers | awk -F '\t' '$5 == "web" {print $8}')"
+    [ -n "$legacy" ] && [ "$legacy" != "$now" ] || ng "前の照らし方の指紋が今の指紋と同じ（試しの作り方の誤り）"
+    awk -v l="$legacy" '$1 == "service" && $2 == "web" {$4 = l} {print}' "$EC_INTEGRITY_DIR/expected" > "$work/e.tmp" && cat "$work/e.tmp" > "$EC_INTEGRITY_DIR/expected"
+    printf '%s %s' "$legacy" "$now"
+}
+healthy_table
+read -r legacy_fp now_fp <<< "$(legacy_expected)"
+gen_before="$(ec_integrity_generation)"
+expect_ok "前の照らし方の控えで、今と同じ状態なら ok（更新の直後に鳴らない）"
+grep -q "^service web sha256:[0-9]* $now_fp\$" "$EC_INTEGRITY_DIR/expected" && [ "$(ec_integrity_generation)" = "$gen_before" ] &&
+    ok "控えを今の照らし方に読み替え、世代は上げない" || ng "読み替えていないか、世代が変わった（世代 $gen_before → $(ec_integrity_generation)）"
+set_col web 9 "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/ccc,/var/www/html/public,false;"
+expect_ok "読み替えた後は、web を作り直しても ok"
+healthy_table
+read -r legacy_fp now_fp <<< "$(legacy_expected)"
+set_image app 7
+expect_problem image:app image "前の照らし方の控えでも、ほかの困りごとは出す"
+[[ ",$(inner)," != *",config:web,"* ]] && grep -q "^service web sha256:[0-9]* $legacy_fp\$" "$EC_INTEGRITY_DIR/expected" &&
+    ok "ほかに困りごとがある時は読み替えない（違いのある時に黙って控えを書き換えない）" || ng "困りごとがあるのに読み替えたか、config:web を出した: $(inner)"
+healthy_table
+expect_ok "読み替えずに残った控えも、同じ状態に戻れば ok"
+healthy_table
+read -r legacy_fp now_fp <<< "$(legacy_expected)"
+set_col web 9 "$(mounts web)image,/var/lib/docker/rootfs/overlayfs/ddd,/var/www/html/public,false;"
+expect_problem config:web config "前の照らし方の控えで、web が作り直されていれば今までどおり知らせる"
+healthy_table
+ec_integrity_record always service > /dev/null 2>&1 || ng "控え直せない"
+expect_ok "控え直すと ok に戻る"
 healthy_table
 grep -v '^c-web' "$work/containers" > "$work/c.tmp" && mv "$work/c.tmp" "$work/containers"
 row c-web false "$(img 2)" ec-sugar web False /ec-sugar-web-1 'false null ["ALL"] cfg-web' "$(mounts web)" >> "$work/containers"
